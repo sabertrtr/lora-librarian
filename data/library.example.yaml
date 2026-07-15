@@ -1,0 +1,7 @@
+# LoRA Librarian wildcard file (Dynamic Prompts). Copy to data/library.yaml, or
+# let the desktop app / server create it. LoRA lines get appended under these
+# category headers as you accept them.
+character:
+style:
+concept:
+environment:

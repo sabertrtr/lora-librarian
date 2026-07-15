@@ -1,0 +1,38 @@
+{
+  "name": "lora-librarian",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Stage, review and catalogue Civitai LoRAs into a Dynamic Prompts wildcard file.",
+  "license": "AGPL-3.0-or-later",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "electron": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.lorabrarian.app",
+    "productName": "LoRA Librarian",
+    "files": [
+      "electron/**",
+      "src/**",
+      "public/**",
+      "package.json"
+    ],
+    "win": { "target": "nsis" },
+    "nsis": { "oneClick": true, "perMachine": false },
+    "mac": { "target": "dmg", "category": "public.app-category.graphics-design" },
+    "linux": { "target": "AppImage", "category": "Graphics" }
+  }
+}

@@ -1,0 +1,13 @@
+.env
+node_modules/
+downloads/
+data/staging.json
+data/staging.json.tmp
+certs/
+data/civitai_cache.json
+data/match_report.tsv
+dist/
+data/library.yaml
+data/*.bak
+CLAUDE.md
+DEVLOG.md

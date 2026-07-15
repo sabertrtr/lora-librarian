@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LoRA Librarian — Settings</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; max-width: 460px; margin: 30px auto; padding: 0 18px; }
+  h1 { font-size: 18px; display: flex; align-items: center; gap: 9px; }
+  h1 img { width: 22px; height: 22px; }
+  label { display: block; font-weight: 600; margin: 18px 0 5px; }
+  .hint { font-weight: 400; color: #888; font-size: 12px; margin: 2px 0 0; }
+  input {
+    width: 100%; box-sizing: border-box; padding: 9px 10px; font: inherit;
+    border: 1px solid rgba(128,128,128,.45); border-radius: 8px;
+    background: transparent; color: inherit;
+  }
+  .row { display: flex; gap: 10px; margin-top: 22px; align-items: center; }
+  button { padding: 9px 16px; border: 0; border-radius: 8px; cursor: pointer; font: inherit; }
+  #save { background: #4f6bed; color: #fff; }
+  #test { background: rgba(128,128,128,.16); color: inherit; }
+  #result { font-size: 13px; min-height: 18px; }
+  #result.ok { color: #2e9e5b; }
+  #result.err { color: #d1435b; }
+  .note { margin-top: 26px; font-size: 12px; color: #888; border-top: 1px solid rgba(128,128,128,.25); padding-top: 14px; }
+</style>
+</head>
+<body>
+  <h1><img src="icon.svg" alt="">LoRA Librarian settings</h1>
+
+  <label for="baseUrl">Service URL
+    <p class="hint">Where your lora-librarian server runs. Desktop app (same machine): http://127.0.0.1:8420
+      — the app shows the exact URL + token under its Extension menu. Another machine:
+      https://&lt;its-ip&gt;:8420 (you'll be asked to allow access on Save).</p>
+  </label>
+  <input id="baseUrl" type="url" placeholder="http://127.0.0.1:8420">
+
+  <label for="token">Service token
+    <p class="hint">Must match SERVICE_TOKEN in the server's .env. Stored locally in this browser only.</p>
+  </label>
+  <input id="token" type="password" placeholder="(unchanged)">
+
+  <div class="row">
+    <button id="save">Save</button>
+    <button id="test">Test connection</button>
+    <span id="result"></span>
+  </div>
+
+  <p class="note">
+    Changing the URL to a different host also needs that host added to the
+    extension's <code>host_permissions</code> in manifest.json, or requests will
+    be blocked. The default host is already covered.
+  </p>
+
+  <script src="config.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

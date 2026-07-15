@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LoRA Librarian -- Review Draft</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.2rem; }
+  label { display: block; margin-top: 0.75rem; font-weight: 600; font-size: 0.9rem; }
+  input[type=text], input[type=number] { width: 100%; padding: 0.4rem; font-size: 1rem; box-sizing: border-box; }
+  .tag-section { margin-top: 1.5rem; }
+  .tag-list { max-height: 280px; overflow-y: auto; border: 1px solid #ccc; padding: 0.5rem; border-radius: 4px; }
+  .tag-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.15rem 0; }
+  .tag-row .count { color: #888; font-size: 0.85em; }
+  .empty { color: #888; font-style: italic; }
+  #preview { margin-top: 1rem; padding: 0.75rem; background: #f4f4f4; border-radius: 4px; font-family: monospace; white-space: pre-wrap; word-break: break-all; }
+  button { margin-top: 1.5rem; padding: 0.6rem 1.2rem; font-size: 1rem; cursor: pointer; }
+  #status { margin-top: 1rem; font-weight: 600; }
+</style>
+</head>
+<body>
+  <h1 id="title">Loading draft...</h1>
+
+  <div id="content" style="display:none">
+    <label for="name">Name</label>
+    <input type="text" id="name">
+
+    <label for="source">Source / franchise</label>
+    <input type="text" id="source">
+
+    <label for="category">Category path</label>
+    <input type="text" id="category">
+
+    <label for="weight">LoRA weight</label>
+    <input type="number" id="weight" step="0.05" value="1">
+
+    <div class="tag-section">
+      <label>Civitai trigger words (uploader-provided)</label>
+      <div class="tag-list" id="civitaiTags"></div>
+    </div>
+
+    <div class="tag-section">
+      <label>Training tags (from the file itself, sorted by frequency)</label>
+      <div class="tag-list" id="trainingTags"></div>
+    </div>
+
+    <div id="preview"></div>
+
+    <button id="commitBtn">Commit to characters.yaml</button>
+    <div id="status"></div>
+  </div>
+
+<script>
+const draftId = new URLSearchParams(location.search).get('id');
+let draft = null;
+
+async function load() {
+  if (!draftId) {
+    document.getElementById('title').textContent = 'No draft id in URL.';
+    return;
+  }
+  const res = await fetch(`/draft/${draftId}`);
+  if (!res.ok) {
+    document.getElementById('title').textContent =
+      'Draft not found or expired (did the server restart since this was created?)';
+    return;
+  }
+  draft = await res.json();
+  document.getElementById('title').textContent = `Review: ${draft.name}`;
+  document.getElementById('name').value = draft.name || '';
+  document.getElementById('source').value = draft.source || '';
+  document.getElementById('category').value = draft.categoryPath || '';
+  document.getElementById('weight').value = draft.weight || 1;
+
+  renderTagList('civitaiTags', draft.civitaiTriggers, true);
+  renderTagList('trainingTags', draft.trainingTags, false);
+
+  document.getElementById('content').style.display = 'block';
+  updatePreview();
+}
+
+function renderTagList(containerId, tags, checkedByDefault) {
+  const el = document.getElementById(containerId);
+  if (!tags || tags.length === 0) {
+    el.innerHTML = '<div class="empty">(none)</div>';
+    return;
+  }
+  el.innerHTML = tags.map((t, i) => {
+    const tag = typeof t === 'string' ? t : t.tag;
+    const count = typeof t === 'string' ? null : t.count;
+    const id = `${containerId}_${i}`;
+    return `<div class="tag-row">
+      <input type="checkbox" id="${id}" data-tag="${escapeHtml(tag)}" ${checkedByDefault ? 'checked' : ''}>
+      <label for="${id}" style="display:inline;font-weight:normal;margin:0;">${escapeHtml(tag)}</label>
+      ${count !== null ? `<span class="count">(${count})</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function getSelectedTags() {
+  return Array.from(document.querySelectorAll('#civitaiTags input:checked, #trainingTags input:checked'))
+    .map(cb => cb.dataset.tag);
+}
+
+function updatePreview() {
+  const name = document.getElementById('name').value.trim();
+  const source = document.getElementById('source').value.trim();
+  const weight = document.getElementById('weight').value || 1;
+  const selected = getSelectedTags();
+  const parts = [draft ? `<lora:${draft.stem}:${weight}>` : '', name, source, selected.join(', ')].filter(Boolean);
+  document.getElementById('preview').textContent = parts.join(', ');
+}
+
+document.addEventListener('input', (e) => {
+  if (['name','source','weight'].includes(e.target.id) || e.target.type === 'checkbox') {
+    updatePreview();
+  }
+});
+
+document.getElementById('commitBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('status');
+  const body = {
+    name: document.getElementById('name').value.trim(),
+    source: document.getElementById('source').value.trim(),
+    categoryPath: document.getElementById('category').value.trim(),
+    weight: parseFloat(document.getElementById('weight').value) || 1,
+    selectedTags: getSelectedTags()
+  };
+  statusEl.textContent = 'Committing...';
+  try {
+    const res = await fetch(`/draft/${draftId}/commit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      statusEl.textContent = `Error: ${data.error}`;
+      return;
+    }
+    statusEl.textContent = `Committed: ${data.lineText}`;
+    document.getElementById('commitBtn').disabled = true;
+  } catch (e) {
+    statusEl.textContent = `Error: ${e.message}`;
+  }
+});
+
+load();
+</script>
+</body>
+</html>

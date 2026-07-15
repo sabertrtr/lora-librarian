@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LoRA Librarian -- Staging Gallery</title>
+<style>
+  :root { --accent:#2dd47a; --sel:#ffd34e; --bg:#14161a; --card:#1c1f26; --card2:#20242d; --line:#2c313c; --muted:#8b93a0; --radius:12px; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; margin:0; padding:1.25rem 1.25rem 4rem; background:var(--bg); color:#e8eaed; }
+  h1 { font-size:1.25rem; margin:0 0 .15rem; }
+  .sub { color:var(--muted); font-size:.85rem; margin-bottom:1rem; }
+  #empty { color:var(--muted); font-style:italic; padding:2rem 0; }
+
+  /* ---- sections ---- */
+  .section { margin:1.4rem 0 0; }
+  .section-head { display:flex; align-items:center; gap:.5rem; font-size:.8rem; letter-spacing:.08em; text-transform:uppercase;
+                  color:#c3cad6; border-bottom:1px solid var(--line); padding-bottom:.35rem; margin-bottom:.7rem; }
+  .section-head .count { color:var(--muted); font-weight:600; }
+  .section.unsorted .section-head { color:#ffcf7a; }
+
+  /* nested category tree (mirrors the Library/Categories pages) */
+  .node.depth0 { margin-top:1rem; }
+  .noderow { display:flex; align-items:center; gap:.5rem; padding:.3rem .45rem; border-radius:8px; border:1px solid transparent; margin-bottom:.5rem; }
+  .node.depth0 > .noderow { background:#1a1d24; border-color:var(--line); }
+  .node.depth0 > .noderow .seg { font-size:1.05rem; font-weight:700; text-transform:capitalize; color:#fff; }
+  .node.unsorted > .noderow .seg { color:#ffcf7a; text-transform:none; }
+  .noderow .seg { font-size:.9rem; color:#dfe4ea; font-weight:600; }
+  .noderow .hbadge { font-size:.58rem; color:#0b0d11; background:var(--accent); border-radius:4px; padding:.02rem .3rem; }
+  .noderow .path { font-size:.66rem; color:var(--muted); font-family:ui-monospace,monospace; }
+  .noderow .ncount { color:var(--muted); font-size:.75rem; font-weight:600; }
+  .caret { cursor:pointer; color:var(--muted); width:1rem; text-align:center; user-select:none; flex:0 0 auto; }
+  .caret.leaf { visibility:hidden; }
+  .children { margin-left:1.3rem; border-left:1px solid var(--line); padding-left:.6rem; }
+  .node.collapsed > .children, .node.collapsed > .gcards { display:none; }
+
+  /* ---- card ---- */
+  .card { display:flex; gap:.9rem; background:var(--card); border:1px solid var(--line); border-radius:var(--radius);
+          padding:.8rem; margin-bottom:.8rem; }
+  .card.downloaded { background:var(--card2); border-color:#2a3550; }
+
+  .thumb-col { flex:0 0 auto; }
+  .thumb { width:150px; height:150px; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line);
+           background:#0c0d10; cursor:zoom-in; display:block; }
+  .thumb.nsfw { filter:blur(12px); }
+  .thumb.nsfw:hover { filter:none; }
+  .thumb.mini { width:44px; height:44px; border-radius:9px; cursor:pointer; }
+
+  .body { flex:1 1 auto; min-width:0; }
+  .head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.5rem; }
+  .f-name { font-size:1.1rem; font-weight:700; color:#fff; background:#0f1116; border:1px solid var(--line);
+            border-radius:8px; padding:.25rem .5rem; min-width:14rem; flex:1 1 14rem; }
+  .model { font-size:.82rem; color:#cbd5e1; background:rgba(80,120,255,.18); border:1px solid rgba(120,150,255,.35);
+           padding:.12rem .55rem; border-radius:999px; white-space:nowrap; }
+  input:focus,select:focus,textarea:focus { outline:none; border-color:var(--accent); }
+
+  .row { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.4rem 0; }
+  label.fld { font-size:.68rem; color:var(--muted); display:flex; flex-direction:column; gap:2px; }
+  .f-source { width:12rem; } .f-weight { width:4.5rem; }
+  input.txt,select.sel { background:#0f1116; border:1px solid var(--line); border-radius:8px; color:#fff; padding:.28rem .45rem; font-size:.86rem; }
+  select.f-category { font-weight:700; }
+  select.f-category.unset { border-color:#c8912f; color:#ffcf7a; }
+
+  /* ---- tag chips ---- */
+  .chips { display:flex; flex-wrap:wrap; gap:.32rem; margin:.5rem 0; }
+  .glabel { width:100%; font-size:.66rem; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-top:.35rem; }
+  .chip { cursor:pointer; user-select:none; font-size:.8rem; padding:.16rem .5rem; border-radius:999px;
+          border:1px solid #4b5563; background:#0f1116; color:#dfe4ea; }
+  .chip .ct { color:var(--muted); font-size:.85em; margin-left:.25rem; }
+  .chip.training { border-style:dashed; }
+  .chip.sel { background:var(--sel); color:#1a1600; border-color:var(--sel); font-weight:600; }
+  .showall { cursor:pointer; font-size:.76rem; color:#9ec5ff; background:none; border:1px dashed #3b4a63;
+             border-radius:999px; padding:.14rem .55rem; }
+
+  /* ---- prompt boxes ---- */
+  .pbox { margin:.5rem 0; }
+  .pbox .plabel { font-size:.66rem; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); margin-bottom:.2rem; display:flex; gap:.4rem; align-items:baseline; }
+  .plabel .hint { text-transform:none; letter-spacing:0; font-style:italic; color:#6b7280; }
+  .built { font-family:ui-monospace,monospace; font-size:.8rem; color:#a7f3d0; background:#0c130f; border:1px solid #24402f;
+           border-radius:8px; padding:.4rem .55rem; word-break:break-all; white-space:pre-wrap; }
+  .canon { width:100%; font-family:ui-monospace,monospace; font-size:.82rem; color:#ffe9a8; background:#161206;
+           border:1px solid #4a3d12; border-radius:8px; padding:.45rem .55rem; resize:vertical; min-height:3.1rem; }
+
+  /* ---- footer / actions ---- */
+  .foot { display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; margin-top:.5rem; }
+  .date { font-size:.72rem; color:var(--muted); }
+  .spacer { flex:1; }
+  button { cursor:pointer; border-radius:8px; border:1px solid #4b5563; padding:.4rem .8rem; font-size:.85rem; background:#20242d; color:#e8eaed; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .accept { background:var(--accent); border-color:var(--accent); color:#04140b; font-weight:700; }
+  .update { background:#3b82f6; border-color:#3b82f6; color:#04122b; font-weight:700; }
+  .dismiss { background:transparent; color:#e08; border-color:#a25; }
+  .status { font-size:.8rem; color:#a7f3d0; } .status.err { color:#ff9090; }
+  .warn { font-size:.75rem; color:#ffcf7a; }
+
+  /* ---- collapsed downloaded bar ---- */
+  .summary { display:none; align-items:center; gap:.6rem; width:100%; cursor:pointer; }
+  .card.collapsed { padding:.5rem .7rem; }
+  .card.collapsed .body { display:none; }
+  .card.collapsed .thumb-col { display:none; }
+  .card.collapsed .summary { display:flex; }
+  .summary .s-name { font-weight:700; color:#fff; }
+  .badge { font-size:.72rem; padding:.1rem .5rem; border-radius:999px; background:rgba(45,212,122,.16);
+           border:1px solid rgba(45,212,122,.4); color:#8ff0bf; white-space:nowrap; }
+  .cat-badge { font-size:.72rem; padding:.1rem .5rem; border-radius:999px; background:#2a3550; color:#cdd7ea; text-transform:capitalize; }
+  .edithint { font-size:.72rem; color:var(--muted); }
+
+  #hoverPreview { position:fixed; top:1.25rem; right:1.25rem; max-width:42vw; max-height:92vh; border:2px solid #4b5563;
+                  border-radius:var(--radius); box-shadow:0 10px 44px rgba(0,0,0,.75); display:none; z-index:60; pointer-events:none; background:#000; }
+</style>
+</head>
+<body>
+  <h1>LoRA Staging Gallery <a id="libraryLink" href="#" style="font-size:.8rem;font-weight:400;margin-left:.6rem;color:#9ec5ff;">library →</a></h1>
+  <div class="sub" id="sub">Loading…</div>
+  <div id="sections"></div>
+  <div id="empty" style="display:none">Nothing staged yet. Right-click a Civitai model in your browser to add one.</div>
+  <img id="hoverPreview" alt="">
+
+<script src="/catpicker.js"></script>
+<script>
+const K = new URLSearchParams(location.search).get('k');
+const authHeaders = K ? { 'x-service-token': K } : {};
+const jsonHeaders = { 'Content-Type':'application/json', ...authHeaders };
+const CATS = ['character','concept','environment','style'];
+const COLLAPSE_KEY = 'gal_collapsed';
+let collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'));
+const RARE = 5; // training tags with fewer than this many instances are hidden by default
+const hoverEl = document.getElementById('hoverPreview');
+document.getElementById('libraryLink').href = K ? `/library?k=${encodeURIComponent(K)}` : '/library';
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// Mirror of server ensureEscaped(): normalize full-width parens to ascii, then
+// escape all ascii parens (idempotent); leave {a|b} and [x] alone.
+function ensureEscaped(s){ return String(s==null?'':s).replace(/（/g,'(').replace(/）/g,')').replace(/\\?[()]/g, m => (m.length===2 ? m : '\\'+m)); }
+
+function builtLine(rec, st){
+  const tags = [...st.selected].map(ensureEscaped).join(', ');
+  return [`<lora:${rec.stem}:${st.weight||1}>`, ensureEscaped(st.name.trim()), ensureEscaped(st.source.trim()), tags]
+    .filter(Boolean).join(', ');
+}
+function relTime(iso){ if(!iso) return ''; return String(iso).slice(0,16).replace('T',' '); }
+
+async function load(){
+  let items;
+  try {
+    const r = await fetch('/staging', { headers:authHeaders });
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || r.status);
+    items = (await r.json()).items || [];
+  } catch(e){ document.getElementById('sub').textContent = 'Failed to load: '+e.message; return; }
+
+  const pending = items.filter(i=>!i.downloaded).length;
+  document.getElementById('sub').textContent = `${pending} to review · ${items.length-pending} downloaded · ${items.length} total`;
+  document.getElementById('empty').style.display = items.length ? 'none' : 'block';
+
+  // group into the nested category tree (mirrors the Library/Categories pages);
+  // records with no category yet go in an "Unsorted" node at the top.
+  const host = document.getElementById('sections');
+  host.innerHTML = '';
+  const unsorted = items.filter(i=> !i.category || !String(i.category).trim());
+  const sorted = items.filter(i=> i.category && String(i.category).trim());
+  if(unsorted.length) host.appendChild(unsortedSection(unsorted));
+  const roots = Object.values(buildTree(sorted).children);
+  roots.sort((a,b)=>{ const ai=CATS.indexOf(a.path), bi=CATS.indexOf(b.path);
+    if(ai>=0||bi>=0){ if(ai<0) return 1; if(bi<0) return -1; return ai-bi; } return a.name.localeCompare(b.name); });
+  for(const r of roots){ const res=renderNode(r,0); if(res.el) host.appendChild(res.el); }
+}
+
+function sortRecs(list){ return list.slice().sort((a,b)=> (a.downloaded?1:0)-(b.downloaded?1:0) || (b.stagedAt||'').localeCompare(a.stagedAt||'')); }
+function buildTree(items){
+  const root={ path:'', children:{}, items:[] };
+  for(const it of items){
+    let node=root, path='';
+    for(const seg of String(it.category).split('/')){ path=path?path+'/'+seg:seg; node.children[seg]=node.children[seg]||{path,name:seg,items:[],children:{}}; node=node.children[seg]; }
+    node.items.push(it);
+  }
+  return root;
+}
+function unsortedSection(list){
+  const wrap=document.createElement('div'); wrap.className='node depth0 unsorted';
+  wrap.innerHTML=`<div class="noderow"><span class="caret leaf"></span><span class="seg">Needs a category</span><span class="ncount">${list.length}</span></div>`;
+  const g=document.createElement('div'); g.className='gcards';
+  for(const rec of sortRecs(list)) g.appendChild(renderCard(rec));
+  wrap.appendChild(g); return wrap;
+}
+function renderNode(node, depth){
+  const recs=sortRecs(node.items);
+  const childWraps=[]; let childCount=0;
+  for(const k of Object.keys(node.children).sort()){ const r=renderNode(node.children[k], depth+1); childCount+=r.count; if(r.el) childWraps.push(r.el); }
+  const count=recs.length+childCount;
+  if(count===0) return { el:null, count:0 };
+  const wrap=document.createElement('div'); wrap.className='node depth'+depth+(collapsed.has(node.path)?' collapsed':'');
+  const hasContent=recs.length||childWraps.length;
+  const isHeader=depth===0 && CATS.includes(node.path);
+  wrap.innerHTML=`<div class="noderow">
+      <span class="caret${hasContent?'':' leaf'}">${collapsed.has(node.path)?'▸':'▾'}</span>
+      <span class="seg">${esc(node.name)}</span>
+      ${isHeader?'<span class="hbadge">header</span>':''}
+      ${depth>0?`<span class="path">${esc(node.path)}</span>`:''}
+      <span class="ncount">${count}</span>
+    </div>`;
+  const caret=wrap.querySelector('.caret');
+  caret.addEventListener('click', ()=>{
+    if(!hasContent) return;
+    if(collapsed.has(node.path)) collapsed.delete(node.path); else collapsed.add(node.path);
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed]));
+    wrap.classList.toggle('collapsed'); caret.textContent=collapsed.has(node.path)?'▸':'▾';
+  });
+  if(recs.length){ const g=document.createElement('div'); g.className='gcards'; for(const rec of recs) g.appendChild(renderCard(rec)); wrap.appendChild(g); }
+  if(childWraps.length){ const ch=document.createElement('div'); ch.className='children'; childWraps.forEach(c=>ch.appendChild(c)); wrap.appendChild(ch); }
+  return { el:wrap, count };
+}
+
+function renderCard(rec){
+  const st = {
+    name: rec.name||'', source: rec.source||'', category: rec.category||'',
+    weight: rec.weight||1, selected: new Set(rec.selectedTags||[]),
+    lineText: rec.lineText || ''
+  };
+  const card = document.createElement('div');
+  card.className = 'card' + (rec.downloaded ? ' downloaded collapsed' : '');
+
+  card.innerHTML = `
+    <div class="summary">
+      <img class="thumb mini" src="${esc(rec.imageThumb||'')}">
+      <span class="s-name">${esc(st.name||'(unnamed)')}</span>
+      <span class="model">${esc(rec.baseModel||'?')}</span>
+      <span class="cat-badge">${esc(st.category||'—')}</span>
+      <span class="badge">✓ downloaded ${esc(relTime(rec.downloadedAt))}</span>
+      <span class="spacer"></span>
+      <span class="edithint">click to edit ▸</span>
+    </div>
+    <div class="thumb-col"><img class="thumb${rec.imageNsfwLevel>=4?' nsfw':''}" src="${esc(rec.imageThumb||'')}"></div>
+    <div class="body">
+      <div class="head">
+        <input class="f-name txt" value="${esc(st.name)}" placeholder="Name">
+        <span class="model">${esc(rec.baseModel||'?')}</span>
+        ${rec.downloaded?'<span class="badge">✓ downloaded</span>':''}
+      </div>
+      <div class="row">
+        <label class="fld">category
+          <span class="f-category catpick-host"></span></label>
+        <label class="fld">source / series<input class="txt f-source" value="${esc(st.source)}" placeholder="e.g. Fire Emblem"></label>
+        <label class="fld">weight<input class="txt f-weight" type="number" step="0.05" value="${esc(st.weight)}"></label>
+      </div>
+      <div class="chips"></div>
+      <div class="pbox">
+        <div class="plabel">Built from tags <span class="hint">(read-only — reflects your clicks)</span></div>
+        <div class="built"></div>
+      </div>
+      <div class="pbox">
+        <div class="plabel">Canonical line → written to YAML <span class="hint">(editable; overwritten whenever you click a tag)</span></div>
+        <textarea class="canon" spellcheck="false"></textarea>
+      </div>
+      <div class="foot">
+        <span class="date">added ${esc(relTime(rec.stagedAt))}</span>
+        <span class="spacer"></span>
+        <span class="warn cat-warn" style="display:none">pick a category first</span>
+        <span class="status"></span>
+        <button class="dismiss"></button>
+        <button class="accept-btn"></button>
+      </div>
+    </div>`;
+
+  const q = s => card.querySelector(s);
+  const chipsEl=q('.chips'), builtEl=q('.built'), canonEl=q('.canon'), statusEl=q('.status');
+  const acceptBtn=q('.accept-btn'), dismissBtn=q('.dismiss'), catWarn=q('.cat-warn');
+  const catCtrl = CatPicker.create(q('.f-category'), { value: st.category, placeholder:'— pick category —', onChange: onCatChange });
+  async function onCatChange(){
+    st.category = catCtrl.getValue(); syncAcceptGuard();
+    try { await fetch(`/staging/${rec.id}`,{method:'PATCH',headers:jsonHeaders,body:JSON.stringify(payload())}); } catch(_){}
+    load();
+  }
+
+  // ---- tag chips (auto-hide rare, keep selected always visible) ----
+  let showRare = false;
+  function chipHtml(tag,count,training){
+    const sel = st.selected.has(tag)?' sel':''; const tr = training?' training':'';
+    const ct = count!=null?`<span class="ct">${count}</span>`:'';
+    return `<span class="chip${sel}${tr}" data-tag="${esc(tag)}">${esc(tag)}${ct}</span>`;
+  }
+  function renderChips(){
+    let html='';
+    if(rec.civitaiTriggers && rec.civitaiTriggers.length){
+      html += `<span class="glabel">Civitai triggers</span>` + rec.civitaiTriggers.map(t=>chipHtml(t,null,false)).join('');
+    }
+    const tt = rec.trainingTags||[];
+    if(tt.length){
+      const common = tt.filter(o=> o.count>=RARE || st.selected.has(o.tag));
+      const rareHidden = tt.filter(o=> o.count<RARE && !st.selected.has(o.tag));
+      html += `<span class="glabel">Training tags (by frequency)</span>`;
+      html += common.map(o=>chipHtml(o.tag,o.count,true)).join('');
+      if(rareHidden.length){
+        if(showRare) html += rareHidden.map(o=>chipHtml(o.tag,o.count,true)).join('');
+        html += `<button type="button" class="showall">${showRare?'▾ hide rare':`▸ show ${rareHidden.length} rare (<${RARE})`}</button>`;
+      }
+    }
+    if(!html) html = `<span class="glabel">No proposed tags</span>`;
+    chipsEl.innerHTML = html;
+  }
+
+  // ---- built box -> canonical box refresh (destroys manual edits, by design) ----
+  function refreshBuilt(){
+    st.name=q('.f-name').value; st.source=q('.f-source').value; st.weight=parseFloat(q('.f-weight').value)||1;
+    builtEl.textContent = builtLine(rec, st);
+    st.lineText = builtEl.textContent;
+    canonEl.value = st.lineText;
+  }
+
+  let saveTimer=null;
+  function payload(){ return { name:q('.f-name').value, source:q('.f-source').value, category:catCtrl.getValue(),
+    weight:parseFloat(q('.f-weight').value)||1, selectedTags:[...st.selected], lineText:canonEl.value }; }
+  function autosave(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{
+    fetch(`/staging/${rec.id}`,{method:'PATCH',headers:jsonHeaders,body:JSON.stringify(payload())}).catch(()=>{}); },500); }
+
+  function syncAcceptGuard(){
+    const noCat = !catCtrl.getValue();
+    catWarn.style.display = noCat ? '' : 'none';
+    acceptBtn.disabled = noCat;
+  }
+
+  chipsEl.addEventListener('click', e=>{
+    const btn=e.target.closest('.showall'); if(btn){ showRare=!showRare; renderChips(); return; }
+    const chip=e.target.closest('.chip'); if(!chip) return;
+    const tag=chip.dataset.tag;
+    st.selected.has(tag) ? st.selected.delete(tag) : st.selected.add(tag);
+    renderChips(); refreshBuilt(); autosave();
+  });
+  card.querySelectorAll('.f-name,.f-source,.f-weight').forEach(el=>el.addEventListener('input',()=>{ refreshBuilt(); autosave(); }));
+  // direct edits to the canonical box: keep them, but they lose to the next tag click
+  canonEl.addEventListener('input',()=>{ st.lineText=canonEl.value; autosave(); });
+
+  // hover-full ONLY on the thumbnail(s)
+  card.querySelectorAll('.thumb').forEach(img=>{
+    if(!rec.imageFull) return;
+    img.addEventListener('mouseenter',()=>{ hoverEl.src=rec.imageFull; hoverEl.style.display='block'; });
+    img.addEventListener('mouseleave',()=>{ hoverEl.style.display='none'; });
+  });
+
+  // collapsed <-> expanded for downloaded cards
+  q('.summary').addEventListener('click', e=>{ if(e.target.closest('.thumb')) return; card.classList.remove('collapsed'); });
+
+  // dismiss
+  dismissBtn.textContent = rec.downloaded ? 'Remove from list' : 'Dismiss';
+  dismissBtn.addEventListener('click', async ()=>{
+    const msg = rec.downloaded
+      ? `Remove "${st.name}" from the gallery list?\n\n(The YAML line and the downloaded file are left in place.)`
+      : `Dismiss "${st.name}" without downloading?`;
+    if(!confirm(msg)) return;
+    const r = await fetch(`/staging/${rec.id}`,{method:'DELETE',headers:authHeaders});
+    if(r.ok) load(); else statusEl.textContent='dismiss failed';
+  });
+
+  // accept (first time) / update line (already downloaded)
+  acceptBtn.className = 'accept-btn ' + (rec.downloaded ? 'update' : 'accept');
+  acceptBtn.textContent = rec.downloaded ? 'Update YAML line' : 'Accept & Download';
+  acceptBtn.addEventListener('click', async ()=>{
+    if(!catCtrl.getValue()){ syncAcceptGuard(); return; }
+    acceptBtn.disabled=true; statusEl.className='status';
+    statusEl.textContent = rec.downloaded ? 'Updating…' : 'Downloading + writing…';
+    try {
+      const r = await fetch(`/staging/${rec.id}/accept`,{method:'POST',headers:jsonHeaders,body:JSON.stringify(payload())});
+      const d = await r.json(); if(!r.ok) throw new Error(d.error||r.status);
+      statusEl.textContent = 'Written ✓'; hoverEl.style.display='none';
+      setTimeout(load, 500);
+    } catch(e){ statusEl.className='status err'; statusEl.textContent='Error: '+e.message; acceptBtn.disabled=false; }
+  });
+
+  renderChips(); refreshBuilt(); syncAcceptGuard();
+  // start downloaded cards from their persisted canonical line, not a rebuild
+  if(rec.downloaded && rec.lineText){ st.lineText=rec.lineText; canonEl.value=rec.lineText; builtEl.textContent=rec.lineText; }
+  return card;
+}
+
+// Fetch the full category structure (for the picker + add-category) before the
+// first render so cards can build their pickers with the real list.
+(async ()=>{
+  let cats = CATS.slice();
+  try {
+    const r = await fetch('/categories', { headers:authHeaders });
+    if(r.ok){ cats = (await r.json()).categories || []; for(const c of CATS) if(!cats.includes(c)) cats.push(c); }
+  } catch(_){}
+  CatPicker.init({ headers: authHeaders, categories: cats });
+  load();
+})();
+</script>
+</body>
+</html>

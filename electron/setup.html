@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { font-family:system-ui,sans-serif; margin:0; padding:1.4rem 1.5rem; background:#14161a; color:#e8eaed; }
+  h1 { font-size:1.15rem; margin:0 0 .3rem; }
+  p.lead { color:#c3cad6; font-size:.86rem; line-height:1.5; margin:.2rem 0 1rem; }
+  label { display:block; font-weight:600; font-size:.85rem; margin:.9rem 0 .3rem; }
+  .hint { font-weight:400; color:#8b93a0; font-size:.76rem; margin:.15rem 0 0; }
+  input { width:100%; box-sizing:border-box; background:#0f1116; border:1px solid #2c313c; border-radius:8px; color:#fff; padding:.5rem .6rem; font-size:.9rem; }
+  .folder { display:flex; gap:.5rem; }
+  .folder input { flex:1 1 auto; }
+  button { cursor:pointer; border:1px solid #2c313c; background:#20242d; color:#e8eaed; border-radius:8px; padding:.5rem .9rem; font-size:.86rem; }
+  button.prim { background:#2b5cff; border-color:#2b5cff; color:#fff; font-weight:600; }
+  .conn { margin-top:1.1rem; padding:.7rem .8rem; border:1px solid #2c313c; border-radius:9px; background:#1a1d24; font-size:.8rem; }
+  .conn code { color:#9ec5ff; word-break:break-all; }
+  .row { display:flex; justify-content:flex-end; gap:.6rem; margin-top:1.2rem; align-items:center; }
+  #err { color:#ff9090; font-size:.8rem; margin-right:auto; }
+</style>
+</head>
+<body>
+  <h1>Welcome to LoRA Librarian</h1>
+  <p class="lead">One-time setup. Everything runs locally on your machine.</p>
+
+  <label for="tok">Civitai API token</label>
+  <p class="hint">Civitai → Account settings → API Keys → Add API key. Needed to fetch model data + downloads (and NSFW-inclusive search per your account).</p>
+  <input id="tok" type="password" placeholder="paste your Civitai token" autocomplete="off">
+
+  <label for="dir">Your Stable Diffusion loras folder</label>
+  <p class="hint">Where accepted LoRAs get downloaded (so Forge/A1111 can see them).</p>
+  <div class="folder"><input id="dir" type="text" placeholder="(optional — defaults to an app folder)" readonly><button id="pick">Choose…</button></div>
+
+  <div class="conn">
+    Your browser extension connects to this app with:<br>
+    URL <code id="cUrl">…</code><br>
+    Token <code id="cTok">…</code><br>
+    <span class="hint">(also under the Extension menu later)</span>
+  </div>
+
+  <div class="row"><span id="err"></span><button class="prim" id="go">Start</button></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  (async () => {
+    const d = await window.setup.defaults();
+    $('cUrl').textContent = d.baseUrl;
+    $('cTok').textContent = d.serviceToken;
+    if (d.downloadDir) $('dir').value = d.downloadDir;
+  })();
+  $('pick').addEventListener('click', async () => {
+    const p = await window.setup.pickFolder();
+    if (p) $('dir').value = p;
+  });
+  $('go').addEventListener('click', async () => {
+    const civitaiToken = $('tok').value.trim();
+    if (!civitaiToken) { $('err').textContent = 'Enter your Civitai token to continue.'; return; }
+    $('go').disabled = true; $('go').textContent = 'Starting…';
+    await window.setup.save({ civitaiToken, downloadDir: $('dir').value || null });
+  });
+</script>
+</body>
+</html>

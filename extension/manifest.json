@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "LoRA Librarian",
+  "version": "0.4.0",
+  "description": "Right-click a Civitai link to stage a LoRA for review in the gallery; replace flagged entries; quick popup.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "lora-librarian@lorabrarian",
+      "strict_min_version": "116.0"
+    }
+  },
+  "permissions": ["contextMenus", "notifications", "storage", "tabs", "alarms"],
+  "host_permissions": [
+    "https://localhost/*",
+    "https://127.0.0.1/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "optional_host_permissions": ["*://*/*"],
+  "background": {
+    "scripts": ["config.js", "background.js"],
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "LoRA Librarian",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

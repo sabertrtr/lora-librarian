@@ -1,0 +1,19 @@
+[Unit]
+Description=LoRA Librarian staging service (Civitai -> gallery -> library.yaml)
+
+[Service]
+Type=simple
+# Point these at your checkout + node binary (use an absolute node path if
+# systemd's minimal PATH can't find node, e.g. an nvm-managed install).
+WorkingDirectory=/path/to/lora-librarian
+ExecStart=/usr/bin/node src/server.js
+# .env is loaded in-process by dotenv from WorkingDirectory -- no EnvironmentFile
+# (dotenv tolerates the .env quoting/format; systemd's parser is stricter).
+Restart=always
+RestartSec=3
+# node reads the server as foreground; SIGINT gives it a clean shutdown.
+KillSignal=SIGINT
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

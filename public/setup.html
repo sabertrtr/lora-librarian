@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LoRA Librarian -- Setup / Scan</title>
+<style>
+  :root { --bg:#14161a; --card:#1c1f26; --line:#2c313c; --muted:#8b93a0; --accent:#2dd47a; --radius:12px; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; margin:0; padding:1.25rem 1.25rem 5rem; background:var(--bg); color:#e8eaed; }
+  a { color:#9ec5ff; }
+  .top { display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap; }
+  h1 { font-size:1.3rem; margin:0; }
+  .nav { margin-left:auto; font-size:.9rem; display:flex; gap:1rem; }
+  .lead { color:#c3cad6; font-size:.92rem; max-width:60rem; margin:.6rem 0 0; line-height:1.5; }
+
+  .passes { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:.8rem; margin:1rem 0; }
+  .pass { background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:.8rem 1rem; }
+  .pass h3 { margin:.1rem 0 .35rem; font-size:.95rem; }
+  .pass .n { color:var(--accent); font-weight:700; }
+  .pass p { margin:.25rem 0 0; color:var(--muted); font-size:.84rem; line-height:1.45; }
+  .warn { color:#ffcf7a; }
+
+  .picker { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; margin:1rem 0 .4rem; }
+  .pick { display:inline-flex; align-items:center; gap:.5rem; cursor:pointer; background:#2b5cff; color:#fff;
+          border-radius:9px; padding:.55rem 1rem; font-size:.92rem; font-weight:600; }
+  .pick input { display:none; }
+  #stopBtn { background:#8a3341; color:#fff; border:none; border-radius:8px; padding:.45rem .9rem; cursor:pointer; display:none; }
+
+  #runbar { display:none; margin:.6rem 0; padding:.6rem .8rem; border:1px solid #33507a; background:#101a2b; border-radius:10px; }
+  #runbar.on { display:block; }
+  #runbar .prog { height:8px; background:#0c1522; border-radius:6px; overflow:hidden; margin:.4rem 0; }
+  #runbar .prog > i { display:block; height:100%; width:0; background:linear-gradient(90deg,#2b5cff,#2dd47a); transition:width .2s; }
+  #runbar .stat { font-size:.85rem; color:#cbd5e1; }
+  .cta { display:inline-block; margin-top:.35rem; background:#20242d; border:1px solid #3b5bbf; color:#cfe0ff;
+         border-radius:8px; padding:.4rem .8rem; font-size:.85rem; text-decoration:none; }
+
+  .counts { display:flex; gap:1.1rem; flex-wrap:wrap; font-size:.85rem; color:var(--muted); margin:.3rem 0; }
+  .counts b { color:#fff; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.5rem; margin-top:.7rem; }
+  .c { display:flex; gap:.5rem; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:.4rem; align-items:flex-start; }
+  .c .th { width:44px; height:57px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:#0c0d10; flex:0 0 auto; }
+  .c .thph { width:44px; height:57px; border-radius:6px; border:1px solid var(--line); background:linear-gradient(135deg,#232838,#161a22); flex:0 0 auto; }
+  .c .m { min-width:0; flex:1 1 auto; }
+  .c .nm { font-size:.78rem; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .c .st { font-size:.68rem; margin-top:.15rem; }
+  .st.pending { color:#6b7280; } .st.hashing { color:#9ec5ff; } .st.matched { color:#8ff0bf; }
+  .st.nomatch { color:#7a828e; } .st.skipped { color:#f0a0a8; } .st.error { color:#ff9090; } .st.cached { color:#c8b06a; }
+  .c.dim { opacity:.6; }
+
+  /* NO_MATCH scaffolding: link to Civitai, or add manually */
+  .acts { margin-top:.35rem; }
+  .actbtns { display:flex; gap:.3rem; }
+  .ab { cursor:pointer; font-size:.66rem; border:1px solid var(--line); background:#20242d; color:#cfe0ff; border-radius:6px; padding:.14rem .45rem; }
+  .ab:hover { border-color:#9ec5ff; }
+  .actform { display:none; gap:.25rem; margin-top:.3rem; }
+  .actform.on { display:flex; }
+  .ai { flex:1 1 auto; min-width:0; background:#0f1116; border:1px solid var(--line); border-radius:6px; color:#fff; padding:.2rem .35rem; font-size:.7rem; }
+  .aerr { font-size:.64rem; color:#ffb3b3; margin-top:.2rem; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>Set up your LoRA library</h1>
+    <span class="nav">
+      <a id="catLink" href="#">⚙ Categories</a>
+      <a id="collectionLink" href="#">🗃 Collection</a>
+      <a id="libraryLink" href="#">📚 Library</a>
+    </span>
+  </div>
+  <p class="lead">Point the librarian at the folder where your LoRA <code>.safetensors</code> files live.
+    It scans locally in your browser and only ever sends a file's <b>hash</b> to the server — never the file itself.</p>
+
+  <div class="passes">
+    <div class="pass">
+      <h3><span class="n">Pass 1</span> — build the list <span class="fast">(fast)</span></h3>
+      <p>Pick your LoRA folder. Every <code>.safetensors</code> is listed by name and gets a card immediately — an uncategorized inventory of what you have.</p>
+    </div>
+    <div class="pass">
+      <h3><span class="n">Pass 2</span> — match to Civitai</h3>
+      <p>Each file is read and <b>SHA-256 hashed in your browser</b>, then looked up on Civitai to fill in its image, name and tags. Cards populate one by one as it works.
+        <span class="warn">This can take a LONG time for large folders</span> — it reads and hashes every file. You can leave it running.</p>
+    </div>
+  </div>
+
+  <div class="picker">
+    <label class="pick"><input type="file" id="folder" webkitdirectory directory multiple> 📁 Choose LoRA folder…</label>
+    <button id="stopBtn">■ Stop</button>
+    <span class="lead" id="pickHint" style="margin:0"></span>
+  </div>
+
+  <div id="runbar">
+    <div class="stat" id="runStat"></div>
+    <div class="prog"><i id="progFill"></i></div>
+    <div class="counts">
+      <span>matched <b id="cMatched">0</b></span>
+      <span>no Civitai match <b id="cNo">0</b></span>
+      <span>skipped (safety) <b id="cSkip">0</b></span>
+      <span>errors <b id="cErr">0</b></span>
+      <span>already had <b id="cCached">0</b></span>
+    </div>
+    <a class="cta" id="catCta" href="#">⚙ Set up your Categories while this runs →</a>
+  </div>
+
+  <div id="grid" class="grid"></div>
+
+<script src="/hoverpreview.js"></script>
+<script>
+const K = new URLSearchParams(location.search).get('k');
+const authHeaders = K ? { 'x-service-token': K } : {};
+const kq = K ? `?k=${encodeURIComponent(K)}` : '';
+for(const [id,path] of [['catLink','/category-setup'],['catCta','/category-setup'],['collectionLink','/collection'],['libraryLink','/library']])
+  document.getElementById(id).href = path + kq;
+HoverPreview.init({ headers: authHeaders });
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const $ = id => document.getElementById(id);
+
+let stopped = false, running = false;
+const counts = { matched:0, nomatch:0, skipped:0, error:0, cached:0 };
+function bump(k){ counts[k]++; $({matched:'cMatched',nomatch:'cNo',skipped:'cSkip',error:'cErr',cached:'cCached'}[k]).textContent = counts[k]; }
+
+async function sha256File(file){
+  const buf = await file.arrayBuffer();
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function cardEl(name){
+  const stem = name.replace(/\.[^.]+$/,'');
+  const el = document.createElement('div'); el.className='c';
+  el.innerHTML = `<div class="thph"></div><div class="m"><div class="nm" title="${esc(name)}">${esc(stem)}</div><div class="st pending">pending…</div></div>`;
+  el._stem = stem;
+  return el;
+}
+function setStatus(el, cls, text){ const s=el.querySelector('.st'); s.className='st '+cls; s.textContent=text; }
+function setMatched(el, card){
+  el.classList.remove('dim');
+  const th = el.querySelector('.thph, .th');
+  if(card.imageThumb){
+    const img=document.createElement('img'); img.className='th'; img.loading='lazy'; img.src=card.imageThumb;
+    img.dataset.full=card.imageFull||''; img.dataset.version=card.versionId||''; img.dataset.model=card.modelId||'';
+    th.replaceWith(img); HoverPreview.bind(img);
+  }
+  if(card.name) el.querySelector('.nm').textContent = card.name;
+  setStatus(el, 'matched', '✓ matched');
+}
+
+async function run(files){
+  running = true; stopped = false;
+  $('stopBtn').style.display='inline-block';
+  $('runbar').classList.add('on');
+
+  // refresh: skip files already in the cache
+  let known = new Set();
+  try { const r=await fetch('/scan/known',{headers:authHeaders}); if(r.ok) known=new Set((await r.json()).stems); } catch(_){}
+
+  // Pass 1: list everything as cards
+  const grid = $('grid'); grid.innerHTML='';
+  const items = files.map(f => { const el=cardEl(f.name); grid.appendChild(el); return { f, el }; });
+  const todo = [];
+  for(const it of items){
+    if(known.has(it.el._stem)){ setStatus(it.el,'cached','✓ already scanned'); it.el.classList.add('dim'); bump('cached'); }
+    else todo.push(it);
+  }
+  $('pickHint').textContent = `${files.length} .safetensors found · ${todo.length} new to match`;
+
+  // Pass 2: hash + match, one at a time so the list visibly populates
+  let done=0;
+  for(const it of todo){
+    if(stopped){ setStatus(it.el,'pending','stopped'); continue; }
+    setStatus(it.el,'hashing','hashing…');
+    try{
+      const hash = await sha256File(it.f);
+      it.el._hash = hash;
+      const r = await fetch('/scan/match',{method:'POST',headers:{...authHeaders,'Content-Type':'application/json'},body:JSON.stringify({filename:it.f.name, sha256:hash})});
+      const d = await r.json().catch(()=>({status:'ERROR'}));
+      if(d.status==='MATCHED'){ setMatched(it.el, d.card); bump('matched'); }
+      else if(d.status==='NO_MATCH'){ setStatus(it.el,'nomatch','not on Civitai — link it or add manually'); addNomatchActions(it.el, it.f.name); bump('nomatch'); }
+      else if(d.status==='SKIPPED'){ setStatus(it.el,'skipped','⚠ skipped (safety)'); bump('skipped'); }
+      else { setStatus(it.el,'error','error'); bump('error'); }
+    }catch(e){ setStatus(it.el,'error','error: '+e.message); bump('error'); }
+    done++;
+    $('progFill').style.width = Math.round(done/todo.length*100)+'%';
+    $('runStat').textContent = `Pass 2: ${done} / ${todo.length} matched (this can take a while — you can leave it running)`;
+  }
+  $('runStat').textContent = stopped ? `Stopped at ${done} / ${todo.length}.` : `Done — matched ${counts.matched}, ${counts.nomatch} not on Civitai, ${counts.skipped} skipped.`;
+  $('stopBtn').style.display='none';
+  running = false;
+}
+
+// NO_MATCH scaffolding: either point the file at a Civitai page (hash changed
+// after a local edit), or keep it as a manual entry that shows in the collection.
+function decCount(k, id){ counts[k]=Math.max(0,counts[k]-1); $(id).textContent=counts[k]; }
+function addNomatchActions(el, filename){
+  const m = el.querySelector('.m');
+  const wrap = document.createElement('div'); wrap.className='acts';
+  const stem = filename.replace(/\.[^.]+$/,'');
+  wrap.innerHTML =
+    `<div class="actbtns"><button class="ab lk">🔗 Link Civitai</button><button class="ab mn">✎ Add manually</button></div>`+
+    `<div class="actform lkf"><input class="ai url" placeholder="paste civitai model URL…"><button class="ab go">Link</button></div>`+
+    `<div class="actform mnf"><input class="ai nm2" value="${esc(stem)}"><button class="ab go2">Add</button></div>`+
+    `<div class="aerr"></div>`;
+  m.appendChild(wrap);
+  const lkf=wrap.querySelector('.lkf'), mnf=wrap.querySelector('.mnf'), err=wrap.querySelector('.aerr');
+  wrap.querySelector('.lk').addEventListener('click', ()=>{ lkf.classList.toggle('on'); mnf.classList.remove('on'); if(lkf.classList.contains('on')) wrap.querySelector('.url').focus(); });
+  wrap.querySelector('.mn').addEventListener('click', ()=>{ mnf.classList.toggle('on'); lkf.classList.remove('on'); if(mnf.classList.contains('on')) wrap.querySelector('.nm2').focus(); });
+  const doLink = async ()=>{
+    const url = wrap.querySelector('.url').value.trim(); if(!url) return;
+    err.textContent='linking…';
+    try{
+      const r = await fetch('/scan/link',{method:'POST',headers:{...authHeaders,'Content-Type':'application/json'},body:JSON.stringify({filename, civitaiUrl:url, sha256:el._hash})});
+      const d = await r.json().catch(()=>({}));
+      if(d.status==='MATCHED'){ wrap.remove(); setMatched(el, d.card); decCount('nomatch','cNo'); bump('matched'); }
+      else if(d.status==='SKIPPED'){ err.textContent='skipped (safety): '+(d.reason||''); }
+      else throw new Error(d.error||('HTTP '+r.status));
+    }catch(e){ err.textContent='failed: '+e.message; }
+  };
+  const doManual = async ()=>{
+    const nm = wrap.querySelector('.nm2').value.trim();
+    err.textContent='saving…';
+    try{
+      const r = await fetch('/scan/manual',{method:'POST',headers:{...authHeaders,'Content-Type':'application/json'},body:JSON.stringify({filename, name:nm})});
+      const d = await r.json().catch(()=>({}));
+      if(d.status==='MANUAL'){ wrap.remove(); if(nm) el.querySelector('.nm').textContent=nm; setStatus(el,'cached','✎ added — finish in Collection'); decCount('nomatch','cNo'); }
+      else throw new Error(d.error||('HTTP '+r.status));
+    }catch(e){ err.textContent='failed: '+e.message; }
+  };
+  wrap.querySelector('.go').addEventListener('click', doLink);
+  wrap.querySelector('.go2').addEventListener('click', doManual);
+  wrap.querySelector('.url').addEventListener('keydown', e=>{ if(e.key==='Enter') doLink(); });
+  wrap.querySelector('.nm2').addEventListener('keydown', e=>{ if(e.key==='Enter') doManual(); });
+}
+
+$('folder').addEventListener('change', e=>{
+  const files = [...e.target.files].filter(f=>/\.safetensors$/i.test(f.name));
+  if(!files.length){ $('pickHint').textContent = 'No .safetensors files in that folder.'; return; }
+  for(const k of ['matched','nomatch','skipped','error','cached']) counts[k]=0;
+  ['cMatched','cNo','cSkip','cErr','cCached'].forEach(id=>$(id).textContent='0');
+  run(files);
+});
+$('stopBtn').addEventListener('click', ()=>{ stopped=true; });
+window.addEventListener('beforeunload', e=>{ if(running){ e.preventDefault(); e.returnValue=''; } });
+</script>
+</body>
+</html>

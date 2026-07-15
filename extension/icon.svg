@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="2" y="2" width="60" height="60" rx="13" fill="#4f6bed"/>
+  <!-- three book spines -->
+  <rect x="16" y="15" width="9"  height="34" rx="2" fill="#fff"/>
+  <rect x="27.5" y="15" width="9" height="34" rx="2" fill="#dfe6ff"/>
+  <g transform="rotate(11 46 33)">
+    <rect x="40" y="16" width="9" height="33" rx="2" fill="#fff"/>
+    <rect x="40" y="22" width="9" height="3" fill="#4f6bed"/>
+  </g>
+  <rect x="18" y="21" width="5" height="3" fill="#4f6bed"/>
+  <rect x="29.5" y="21" width="5" height="3" fill="#4f6bed"/>
+</svg>

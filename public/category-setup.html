@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LoRA Librarian -- Categories</title>
+<style>
+  :root { --bg:#14161a; --card:#1c1f26; --line:#2c313c; --muted:#8b93a0; --accent:#2dd47a; --radius:12px; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; margin:0; padding:1.25rem 1.25rem 6rem; background:var(--bg); color:#e8eaed; }
+  a { color:#9ec5ff; }
+  .top { display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap; }
+  h1 { font-size:1.3rem; margin:0; }
+  .nav { margin-left:auto; font-size:.9rem; display:flex; gap:1rem; }
+  .lead { color:#c3cad6; font-size:.9rem; max-width:60rem; margin:.6rem 0 1rem; line-height:1.5; }
+
+  .addroot { display:flex; gap:.5rem; align-items:center; margin-bottom:.7rem; }
+  input.ci { background:#0f1116; border:1px solid var(--line); border-radius:8px; color:#fff; padding:.4rem .55rem; font-size:.88rem; min-width:14rem; }
+  button.b { cursor:pointer; border:1px solid var(--line); background:#20242d; color:#e8eaed; border-radius:8px; padding:.4rem .8rem; font-size:.85rem; }
+  button.b:hover { border-color:#9ec5ff; }
+  button.prim { background:#2b5cff; border-color:#2b5cff; color:#fff; font-weight:600; }
+
+  #rootzone { border:1px dashed var(--line); border-radius:9px; padding:.4rem .7rem; color:var(--muted); font-size:.8rem; margin-bottom:.6rem; }
+  #rootzone.dropok { border-color:#3b5bbf; background:rgba(80,120,255,.10); color:#cfe0ff; }
+
+  .node.depth0 { margin-top:.55rem; }
+  .noderow { display:flex; align-items:center; gap:.5rem; padding:.28rem .4rem; border-radius:7px; border:1px solid transparent; }
+  .node.depth0 > .noderow { background:#1a1d24; border-color:var(--line); }
+  .noderow.dropok { border-color:#3b5bbf; background:rgba(80,120,255,.12); }
+  .noderow.moved { border-color:#7a5; background:rgba(120,190,90,.08); }
+  .grip { cursor:grab; color:#5b6472; font-size:.85rem; flex:0 0 auto; }
+  .caret { cursor:pointer; color:var(--muted); width:1rem; text-align:center; user-select:none; flex:0 0 auto; }
+  .caret.leaf { visibility:hidden; }
+  .node.depth0 > .noderow .seg { font-size:1rem; font-weight:700; text-transform:capitalize; color:#fff; }
+  .noderow .seg { font-size:.88rem; color:#dfe4ea; }
+  .noderow .badge { font-size:.58rem; color:#0b0d11; background:var(--accent); border-radius:4px; padding:.02rem .3rem; text-transform:none; }
+  .noderow .path { font-size:.66rem; color:var(--muted); font-family:ui-monospace,monospace; }
+  .noderow .spacer { flex:1; }
+  .addsub { cursor:pointer; font-size:.72rem; color:#9ec5ff; background:none; border:1px solid var(--line); border-radius:999px; padding:.06rem .55rem; }
+  .addsub:hover { border-color:#9ec5ff; }
+  .children { margin-left:1.3rem; border-left:1px solid var(--line); padding-left:.5rem; }
+  .node.collapsed > .children { display:none; }
+  .subform { display:none; gap:.4rem; align-items:center; margin:.25rem 0 .25rem 1.3rem; }
+  .subform.on { display:flex; }
+  .subform input { background:#0f1116; border:1px solid var(--line); border-radius:7px; color:#fff; padding:.28rem .45rem; font-size:.8rem; }
+
+  #applybar { position:fixed; left:0; right:0; bottom:0; display:none; align-items:center; gap:1rem; padding:.7rem 1.25rem;
+              background:#101a2b; border-top:1px solid #33507a; }
+  #applybar.on { display:flex; }
+  #applybar b { color:#fff; }
+  #applybar .spacer { flex:1; }
+  #msg { font-size:.82rem; color:var(--muted); min-height:1em; margin:.3rem 0; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>Categories</h1>
+    <span class="nav">
+      <a id="setupLink" href="#">📁 Scan</a>
+      <a id="libraryLink" href="#">📚 Library</a>
+      <a id="curateLink" href="#">✎ Curate</a>
+      <a id="collectionLink" href="#">🗃 Collection</a>
+    </span>
+  </div>
+  <p class="lead">Your category buckets. The four <b>headers</b> are your top-level categories; add more roots or nest
+    sub-categories under any node. <b>Drag a category</b> (by its ⠿ handle) onto another to re-parent it — moves are
+    staged and only written when you hit <b>Apply</b>. Click a ▸ to collapse. Loras travel with their category.</p>
+
+  <div class="addroot">
+    <input class="ci" id="rootName" placeholder="new root category name…" autocomplete="off">
+    <button class="b prim" id="addRoot">+ Add root category</button>
+  </div>
+  <div id="rootzone">⤴ drop a category here to make it a root</div>
+  <div id="msg"></div>
+  <div id="tree"></div>
+
+  <div id="applybar">
+    <b id="applyCount"></b>
+    <span class="spacer"></span>
+    <button class="b" id="discardBtn">Discard</button>
+    <button class="b prim" id="applyBtn">Apply changes</button>
+  </div>
+
+<script>
+const K = new URLSearchParams(location.search).get('k');
+const authHeaders = K ? { 'x-service-token': K } : {};
+const kq = K ? `?k=${encodeURIComponent(K)}` : '';
+for(const [id,p] of [['setupLink','/setup'],['libraryLink','/library'],['curateLink','/curate'],['collectionLink','/collection']])
+  document.getElementById(id).href = p + kq;
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const $ = id => document.getElementById(id);
+
+const HEADERS = ['character','style','concept','environment'];
+const COLLAPSE_KEY = 'cat_collapsed';
+let keyMap = [];        // [{orig, cur}]
+let revision = '';
+let dragPath = null;
+let collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'));
+
+async function api(path, body){
+  const r = await fetch(path, body ? { method:'POST', headers:{...authHeaders,'Content-Type':'application/json'}, body:JSON.stringify(body) } : { headers:authHeaders });
+  const d = await r.json().catch(()=>({}));
+  if(!r.ok){ const e=new Error(d.error||r.status); e.status=r.status; throw e; }
+  return d;
+}
+
+async function load(){
+  try{ const d = await api('/categories'); keyMap = (d.categories||[]).map(k=>({orig:k, cur:k})); revision = d.revision; }
+  catch(e){ $('msg').textContent='Failed to load: '+e.message; return; }
+  const missing = HEADERS.filter(h => !keyMap.some(e=>e.cur===h));
+  if(missing.length){
+    for(const h of missing){ try{ await api('/categories/create', {parent:'', name:h}); }catch(_){} }
+    const d = await api('/categories'); keyMap = (d.categories||[]).map(k=>({orig:k, cur:k})); revision = d.revision;
+  }
+  render();
+}
+
+function curKeys(){ return keyMap.map(e=>e.cur); }
+function pending(){ return keyMap.filter(e=>e.cur!==e.orig); }
+
+function buildTree(keys){
+  const root = { children:{} };
+  for(const key of keys){
+    let node = root, path='';
+    for(const seg of key.split('/')){
+      path = path ? path+'/'+seg : seg;
+      node.children[seg] = node.children[seg] || { name:seg, path, children:{} };
+      node = node.children[seg];
+    }
+  }
+  return root;
+}
+
+function moveNode(P, T){
+  if(P===T) return;
+  if(T===P || T.startsWith(P+'/')){ $('msg').textContent="Can't drop a category into itself."; return; }
+  const last = P.split('/').pop();
+  const newP = T ? T+'/'+last : last;
+  if(newP===P) return;
+  if(HEADERS.includes(P) && T!==''){ $('msg').textContent='Root headers stay at the top level.'; return; }
+  if(keyMap.some(e=> e.cur===newP && !(e.cur===P || e.cur.startsWith(P+'/')))){ $('msg').textContent=`A category "${last}" already exists there.`; return; }
+  for(const e of keyMap){
+    if(e.cur===P) e.cur=newP;
+    else if(e.cur.startsWith(P+'/')) e.cur = newP + e.cur.slice(P.length);
+  }
+  $('msg').textContent=''; render();
+}
+
+function nodeEl(node, depth){
+  const wrap = document.createElement('div');
+  wrap.className = 'node depth'+depth + (collapsed.has(node.path)?' collapsed':'');
+  const hasKids = Object.keys(node.children).length>0;
+  const isHeader = depth===0 && HEADERS.includes(node.path);
+  const wasMoved = keyMap.some(e=>e.cur===node.path && e.orig!==e.cur);
+  wrap.innerHTML = `
+    <div class="noderow${wasMoved?' moved':''}" draggable="true">
+      <span class="caret${hasKids?'':' leaf'}">${collapsed.has(node.path)?'▸':'▾'}</span>
+      <span class="grip" title="drag to re-parent">⠿</span>
+      <span class="seg">${esc(node.name)}</span>
+      ${isHeader?'<span class="badge">header</span>':''}
+      ${depth>0?`<span class="path">${esc(node.path)}</span>`:''}
+      <span class="spacer"></span>
+      <button class="addsub">+ sub</button>
+    </div>
+    <div class="subform"><input class="ci" placeholder="sub-category under ${esc(node.path)}…" autocomplete="off"><button class="b">Add</button></div>
+    <div class="children"></div>`;
+
+  const row = wrap.querySelector('.noderow');
+  wrap.querySelector('.caret').addEventListener('click', ()=>{
+    if(!hasKids) return;
+    if(collapsed.has(node.path)) collapsed.delete(node.path); else collapsed.add(node.path);
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed]));
+    wrap.classList.toggle('collapsed');
+    wrap.querySelector('.caret').textContent = collapsed.has(node.path)?'▸':'▾';
+  });
+
+  // drag to re-parent
+  row.addEventListener('dragstart', e=>{ dragPath=node.path; e.dataTransfer.effectAllowed='move'; try{e.dataTransfer.setData('text/plain',node.path);}catch(_){}});
+  row.addEventListener('dragend', ()=>{ dragPath=null; document.querySelectorAll('.dropok').forEach(x=>x.classList.remove('dropok')); });
+  row.addEventListener('dragover', e=>{ if(dragPath && dragPath!==node.path && !node.path.startsWith(dragPath+'/')){ e.preventDefault(); row.classList.add('dropok'); } });
+  row.addEventListener('dragleave', ()=> row.classList.remove('dropok'));
+  row.addEventListener('drop', e=>{ e.preventDefault(); row.classList.remove('dropok'); if(dragPath) moveNode(dragPath, node.path); });
+
+  // add sub (immediate create)
+  const form = wrap.querySelector('.subform'), input = form.querySelector('input');
+  wrap.querySelector('.addsub').addEventListener('click', ()=>{ form.classList.toggle('on'); if(form.classList.contains('on')) input.focus(); });
+  const doAdd = async ()=>{
+    const name = input.value.trim(); if(!name) return;
+    if(pending().length){ $('msg').textContent='Apply or discard your pending moves before adding.'; return; }
+    try{ await api('/categories/create', { parent:node.path, name }); input.value=''; form.classList.remove('on'); await load(); $('msg').textContent=`Added ${node.path}/${name}`; }
+    catch(e){ $('msg').textContent='Failed: '+e.message; }
+  };
+  form.querySelector('button').addEventListener('click', doAdd);
+  input.addEventListener('keydown', e=>{ if(e.key==='Enter') doAdd(); });
+
+  const kids = wrap.querySelector('.children');
+  for(const k of Object.keys(node.children).sort()) kids.appendChild(nodeEl(node.children[k], depth+1));
+  return wrap;
+}
+
+function render(){
+  const tree = buildTree(curKeys());
+  const host = $('tree'); host.innerHTML='';
+  const roots = Object.values(tree.children);
+  roots.sort((a,b)=>{ const ai=HEADERS.indexOf(a.path), bi=HEADERS.indexOf(b.path);
+    if(ai>=0||bi>=0){ if(ai<0) return 1; if(bi<0) return -1; return ai-bi; } return a.name.localeCompare(b.name); });
+  for(const r of roots) host.appendChild(nodeEl(r, 0));
+  const p = pending();
+  $('applybar').classList.toggle('on', p.length>0);
+  $('applyCount').textContent = p.length ? `${p.length} category move${p.length>1?'s':''} staged` : '';
+}
+
+// root drop zone
+const rz = $('rootzone');
+rz.addEventListener('dragover', e=>{ if(dragPath && dragPath.includes('/')){ e.preventDefault(); rz.classList.add('dropok'); } });
+rz.addEventListener('dragleave', ()=> rz.classList.remove('dropok'));
+rz.addEventListener('drop', e=>{ e.preventDefault(); rz.classList.remove('dropok'); if(dragPath) moveNode(dragPath, ''); });
+
+$('discardBtn').addEventListener('click', ()=>{ keyMap.forEach(e=>e.cur=e.orig); $('msg').textContent=''; render(); });
+$('applyBtn').addEventListener('click', async ()=>{
+  const renames = pending().map(e=>({from:e.orig, to:e.cur}));
+  if(!renames.length) return;
+  $('applyBtn').disabled=true; $('applyBtn').textContent='Applying…';
+  try{
+    const d = await api('/categories/reorganize', { renames, baseRevision:revision });
+    keyMap = (d.categories||[]).map(k=>({orig:k, cur:k})); revision = d.revision;
+    $('msg').textContent = `Applied ${d.renamed} rename(s).`; render();
+  }catch(e){
+    if(e.status===409){ $('msg').textContent='Library changed elsewhere — reloading.'; await load(); }
+    else $('msg').textContent='Apply failed: '+e.message;
+  }finally{ $('applyBtn').disabled=false; $('applyBtn').textContent='Apply changes'; }
+});
+$('addRoot').addEventListener('click', async ()=>{
+  const name = $('rootName').value.trim(); if(!name) return;
+  if(pending().length){ $('msg').textContent='Apply or discard your pending moves before adding.'; return; }
+  try{ await api('/categories/create', { parent:'', name }); $('rootName').value=''; await load(); $('msg').textContent=`Added root "${name}"`; }
+  catch(e){ $('msg').textContent='Failed: '+e.message; }
+});
+$('rootName').addEventListener('keydown', e=>{ if(e.key==='Enter') $('addRoot').click(); });
+load();
+</script>
+</body>
+</html>

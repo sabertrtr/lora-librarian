@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LoRA Librarian -- Collection</title>
+<style>
+  :root { --bg:#14161a; --card:#1c1f26; --line:#2c313c; --muted:#8b93a0; --sel:#ffd34e; --radius:12px; }
+  * { box-sizing:border-box; }
+  body { font-family:system-ui,sans-serif; margin:0; padding:1.25rem 1.25rem 4rem; background:var(--bg); color:#e8eaed; }
+  a { color:#9ec5ff; }
+  .top { display:flex; align-items:baseline; gap:1rem; flex-wrap:wrap; }
+  h1 { font-size:1.25rem; margin:0; }
+  .sub { color:var(--muted); font-size:.85rem; }
+  .nav { margin-left:auto; font-size:.9rem; display:flex; gap:1rem; }
+  .tools { margin:.8rem 0 .4rem; display:flex; gap:.8rem; flex-wrap:wrap; align-items:center; }
+  #filter { background:#0f1116; border:1px solid var(--line); border-radius:8px; color:#fff; padding:.4rem .6rem; font-size:.9rem; width:min(26rem,90vw); }
+  .toggle { font-size:.85rem; color:#dfe4ea; display:flex; gap:.35rem; align-items:center; cursor:pointer; }
+  #empty { color:var(--muted); font-style:italic; padding:2rem 0; }
+
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:.8rem; margin-top:1rem; }
+  .card { display:flex; gap:.8rem; background:var(--card); border:1px solid var(--line); border-radius:var(--radius); padding:.7rem; }
+  .card.done { border-color:#2f6d47; }
+
+  .ph { flex:0 0 auto; width:156px; aspect-ratio:320/411; height:auto; border-radius:var(--radius); border:1px solid var(--line);
+        background:linear-gradient(135deg,#232838,#161a22); display:flex; align-items:center; justify-content:center;
+        color:#4b5563; font-size:.62rem; text-align:center; padding:.3rem; overflow:hidden; }
+  img.thumb { flex:0 0 auto; width:156px; aspect-ratio:320/411; height:auto; object-fit:cover; border-radius:var(--radius); border:1px solid var(--line); background:#0c0d10; }
+  .civ { font-size:.68rem; margin-left:.4rem; }
+  .body { flex:1 1 auto; min-width:0; }
+  .head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.35rem; }
+  .name { font-size:1rem; font-weight:700; color:#fff; word-break:break-word; }
+  .badge { font-size:.66rem; padding:.08rem .45rem; border-radius:999px; background:rgba(60,160,90,.18); border:1px solid #3c9a5a; color:#a7e0bd; white-space:nowrap; }
+  .base { font-size:.68rem; color:var(--muted); }
+  .lora { font-family:ui-monospace,monospace; font-size:.72rem; color:#9ec5ff; word-break:break-all; margin:.15rem 0 .4rem; }
+  .chips { display:flex; flex-wrap:wrap; gap:.3rem; margin-bottom:.4rem; }
+  .chip { font-size:.72rem; padding:.1rem .45rem; border-radius:999px; border:1px solid #4b5563; background:#0f1116; color:#dfe4ea; }
+
+  .addform { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+  .recatform { display:flex; gap:.5rem; align-items:center; }
+  .addform input.nm { flex:1 1 10rem; min-width:0; background:#0f1116; border:1px solid var(--line); border-radius:7px; color:#fff; padding:.28rem .5rem; font-size:.8rem; }
+  .addform select { background:#0f1116; border:1px solid var(--line); border-radius:7px; color:#fff; padding:.28rem .4rem; font-size:.8rem; }
+  .addbtn { background:#1f8b4c; border:none; color:#fff; border-radius:7px; padding:.3rem .7rem; font-size:.76rem; cursor:pointer; }
+  .addbtn[disabled] { opacity:.55; cursor:default; }
+  .astat { font-size:.68rem; color:var(--muted); }
+
+  /* trigger-set box with ‹ › version toggle (rounded rectangle, not pills) */
+  .trigrow { display:flex; align-items:stretch; gap:.35rem; margin-bottom:.45rem; }
+  .trigbox { flex:1 1 auto; min-width:0; background:#0f1116; border:1px solid var(--line); border-radius:8px;
+             padding:.32rem .5rem; font-size:.76rem; color:#dfe4ea; line-height:1.4; max-height:3.4rem; overflow-y:auto; word-break:break-word; }
+  .trigbox .empty { color:#5b6472; font-style:italic; }
+  .trigbox .vname { font-size:.62rem; color:var(--muted); margin-right:.35rem; padding:0 .25rem; border:1px solid var(--line); border-radius:4px; }
+  .trignav { flex:0 0 auto; width:1.55rem; border:1px solid var(--line); background:#0f1116; color:#39404e;
+             border-radius:7px; cursor:default; font-size:1rem; line-height:1; }
+  .trignav.lit { color:#9ec5ff; cursor:pointer; }
+  .trignav.lit:hover { border-color:#9ec5ff; }
+
+  /* select-a-lora -> replace-an-in-library-entry flow */
+  .selbtn { cursor:pointer; font-size:.64rem; color:#9ec5ff; background:none; border:1px solid var(--line); border-radius:999px; padding:.05rem .5rem; }
+  .selbtn:hover { border-color:#9ec5ff; }
+  .card.source { border-color:#9ec5ff; box-shadow:0 0 0 1px #9ec5ff inset; }
+  .card.source .selbtn { color:#0b0d11; background:#9ec5ff; border-color:#9ec5ff; }
+  #selbar { display:none; align-items:center; gap:.6rem; margin:.55rem 0 0; padding:.5rem .7rem; border:1px solid #33507a; background:#101a2b; border-radius:9px; font-size:.85rem; }
+  #selbar.on { display:flex; }
+  #selbar b { color:#fff; }
+  #selbar .clear { margin-left:auto; cursor:pointer; color:#9ec5ff; white-space:nowrap; }
+  /* a catalogued badge becomes an obvious replace target while a source is selected */
+  body.has-source .card.done .badge { cursor:pointer; }
+  body.has-source .card.done .badge:not(.confirming):hover { background:rgba(158,197,255,.22); border-color:#9ec5ff; color:#dbe8ff; }
+
+  /* inline replace confirmation on the badge */
+  .badge.confirming { display:inline-flex; align-items:center; gap:.4rem; position:relative; overflow:hidden;
+                      background:#1a2130; border-color:#3a4152; color:#dfe4ea; padding-bottom:.14rem; }
+  .badge .rc-q { font-size:.66rem; }
+  .badge .rc-btn { border:none; border-radius:5px; padding:0 .4rem; font-size:.82rem; line-height:1.35;
+                   opacity:.35; cursor:not-allowed; filter:grayscale(.7); transition:opacity .15s, filter .15s, transform .12s; }
+  .badge .rc-yes { background:#1f8b4c; color:#fff; }
+  .badge .rc-no  { background:#8a3341; color:#fff; }
+  .badge .rc-wait { font-size:.6rem; color:#8b93a0; }
+  .badge.armed .rc-btn { opacity:1; cursor:pointer; filter:none; }
+  .badge.armed .rc-yes { box-shadow:0 0 0 2px rgba(53,199,110,.55); }
+  .badge.armed .rc-btn:hover { transform:scale(1.14); }
+  .badge.armed .rc-wait { display:none; }
+  .badge.armed { animation:armpop .18s ease-out; }
+  @keyframes armpop { from { transform:scale(.9); } to { transform:scale(1); } }
+  .badge .rc-bar { position:absolute; left:0; bottom:0; height:2px; width:0; background:#9ec5ff; }
+  .badge.counting .rc-bar { width:100%; transition:width 2s linear; }
+  .badge.armed .rc-bar { background:#35c76e; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <h1>My Collection</h1>
+    <span class="sub" id="sub">Loading…</span>
+    <span class="nav">
+      <a id="scanLink" href="#">📁 Scan</a>
+      <a id="catLink" href="#">⚙ Categories</a>
+      <a id="libraryLink" href="#">📚 Library</a>
+      <a id="curateLink" href="#">✎ Curate</a>
+      <a id="galleryLink" href="#">↩ Gallery</a>
+    </span>
+  </div>
+  <div class="tools">
+    <input id="filter" placeholder="Filter by name, stem, tag, base model…" autocomplete="off">
+    <label class="toggle"><input type="checkbox" id="onlyUncat"> only uncatalogued</label>
+    <span class="sub" id="fcount"></span>
+  </div>
+  <div id="selbar">
+    <span>Replacement selected: <b id="selName"></b> — now click an <b>“✓ in library”</b> badge to swap it in.</span>
+    <span class="clear" id="selClear">clear ✕</span>
+  </div>
+  <div id="grid" class="grid"></div>
+  <div id="empty" style="display:none">No cached LoRAs. Run scripts/match-hashes.js first.</div>
+
+<script src="/hoverpreview.js"></script>
+<script src="/catpicker.js"></script>
+<script src="/alternates.js"></script>
+<script>
+const K = new URLSearchParams(location.search).get('k');
+const authHeaders = K ? { 'x-service-token': K } : {};
+const kq = K ? `?k=${encodeURIComponent(K)}` : '';
+document.getElementById('libraryLink').href = '/library' + kq;
+document.getElementById('galleryLink').href = '/gallery' + kq;
+document.getElementById('curateLink').href = '/curate' + kq;
+document.getElementById('scanLink').href = '/setup' + kq;
+document.getElementById('catLink').href = '/category-setup' + kq;
+
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+HoverPreview.init({ headers: authHeaders });
+Alternates.init({ headers: authHeaders, token: K });
+let ITEMS = [], CATS = [];
+
+async function load(){
+  try {
+    const [dR, cR] = await Promise.all([
+      fetch('/collection-data', { headers:authHeaders }),
+      fetch('/categories', { headers:authHeaders })
+    ]);
+    if(!dR.ok) throw new Error((await dR.json().catch(()=>({}))).error || dR.status);
+    const d = await dR.json();
+    ITEMS = d.items || [];
+    CATS = cR.ok ? ((await cR.json()).categories || []) : [];
+    // Ensure the 4 canonical categories are always offered even if the file
+    // doesn't have them yet.
+    for(const c of ['character','concept','environment','style']) if(!CATS.includes(c)) CATS.push(c);
+    CatPicker.init({ headers: authHeaders, categories: CATS });
+    document.getElementById('sub').textContent =
+      `${d.counts.total} cached · ${d.counts.catalogued} in library · ${d.counts.uncatalogued} not yet catalogued`;
+    document.getElementById('empty').style.display = ITEMS.length ? 'none' : 'block';
+    render();
+  } catch(e){ document.getElementById('sub').textContent = 'Failed to load: '+e.message; }
+}
+
+function cardEl(it){
+  const card = document.createElement('div');
+  card.className = 'card' + (it.catalogued ? ' done' : '');
+  const left = it.imageThumb
+    ? `<img class="thumb" loading="lazy" src="${esc(it.imageThumb)}" data-full="${esc(it.imageFull||'')}" data-version="${esc(it.versionId||'')}" data-model="${esc(it.modelId||'')}">`
+    : `<div class="ph">${esc(it.stem || 'LoRA')}</div>`;
+  const civLink = it.modelId ? `<a class="civ" href="https://civitai.com/models/${it.modelId}" target="_blank" rel="noopener">civitai ↗</a>` : '';
+  const foot = it.catalogued
+    ? `<div class="recatform"><span class="astat">category</span><span class="recat"></span></div>`
+    : `<div class="addform">
+         <input class="nm" value="${esc(it.name)}" title="name written to characters.yaml">
+         <span class="catpick"></span>
+         <button class="addbtn">Add</button>
+         <span class="astat"></span>
+       </div>`;
+  card.innerHTML = `
+    ${left}
+    <div class="body">
+      <div class="head">
+        <span class="name">${esc(it.name || '(unnamed)')}</span>
+        ${it.catalogued ? `<span class="badge">✓ in library</span>` : ''}
+        <span class="base">${esc(it.baseModel||'')}</span>
+        ${civLink}
+        <button class="altbtn">🔍 alternates</button>
+        <button class="selbtn">select</button>
+      </div>
+      <div class="lora">&lt;lora:${esc(it.stem||'?')}:1&gt;</div>
+      <div class="trigrow">
+        <button class="trignav prev" title="previous trigger set">‹</button>
+        <div class="trigbox"></div>
+        <button class="trignav next" title="next trigger set">›</button>
+      </div>
+      ${foot}
+    </div>`;
+
+  const thumb = card.querySelector('img.thumb');
+  if(thumb) HoverPreview.bind(thumb);
+  card.querySelector('.altbtn').addEventListener('click', ()=> Alternates.open({name: it.name, baseModel: it.baseModel}));
+
+  // ---- trigger sets (per-version) with ‹ › toggle ----
+  let activeTriggers = (it.trainedWords||[]).slice();
+  let trigSets = null, trigIdx = 0, trigLoading = false;
+  const trigbox = card.querySelector('.trigbox');
+  const prevBtn = card.querySelector('.trignav.prev'), nextBtn = card.querySelector('.trignav.next');
+  function renderTrig(){
+    const s = trigSets && trigSets[trigIdx];
+    const vname = (trigSets && trigSets.length>1 && s && s.versionName) ? `<span class="vname">${esc(s.versionName)}</span>` : '';
+    trigbox.innerHTML = activeTriggers.length ? vname + activeTriggers.map(esc).join(', ') : `<span class="empty">no trigger words</span>`;
+  }
+  function litNav(on){ prevBtn.classList.toggle('lit', on); nextBtn.classList.toggle('lit', on); }
+  async function ensureSets(){
+    if(trigSets || trigLoading || !it.modelId) return;
+    trigLoading = true;
+    try{
+      const r = await fetch(`/model-trigger-sets?modelId=${encodeURIComponent(it.modelId)}`, { headers:authHeaders });
+      if(r.ok){
+        trigSets = (await r.json()).sets || [];
+        let idx = trigSets.findIndex(s=> String(s.versionId)===String(it.versionId));
+        if(idx<0) idx = trigSets.findIndex(s=> s.triggers.join('|')===activeTriggers.join('|'));
+        trigIdx = idx<0 ? 0 : idx;
+        if(trigSets.length) activeTriggers = trigSets[trigIdx].triggers.slice();
+        litNav(trigSets.length>1);
+        renderTrig();
+      }
+    }catch(_){ } finally { trigLoading=false; }
+  }
+  function navTrig(d){
+    if(!trigSets || trigSets.length<2) return;
+    trigIdx = (trigIdx + d + trigSets.length) % trigSets.length;
+    activeTriggers = trigSets[trigIdx].triggers.slice();
+    renderTrig();
+  }
+  prevBtn.addEventListener('click', ()=>{ if(prevBtn.classList.contains('lit')) navTrig(-1); });
+  nextBtn.addEventListener('click', ()=>{ if(nextBtn.classList.contains('lit')) navTrig(1); });
+  card.querySelector('.trigrow').addEventListener('mouseenter', ensureSets, { once:true });
+  renderTrig();
+
+  // ---- category picker (custom, non-spilling, with "create new") ----
+  let catCtrl = null;
+  const catHost = card.querySelector('.catpick');
+  if(catHost) catCtrl = CatPicker.create(catHost, { value:'', placeholder:'— category —', onChange:()=>{} });
+  // catalogued cards: the SAME picker, but re-categorizes (moves) on pick
+  const recatHost = card.querySelector('.recat');
+  if(recatHost) CatPicker.recategorize(recatHost, { stem: it.stem, category: it.category, onDone: (c)=>{ it.category = c; } });
+
+  const btn = card.querySelector('.addbtn');
+  if(btn){
+    btn.addEventListener('click', async ()=>{
+      const name = card.querySelector('.nm').value.trim() || it.stem;
+      const category = catCtrl ? catCtrl.getValue() : '';
+      const stat = card.querySelector('.astat');
+      if(!category){ stat.textContent = 'pick a category first'; return; }
+      btn.disabled = true; btn.textContent = 'Adding…';
+      try{
+        const r = await fetch('/collection/add', {
+          method:'POST',
+          headers:{ ...authHeaders, 'Content-Type':'application/json' },
+          body: JSON.stringify({ stem: it.stem, name, category, selectedTags: activeTriggers })
+        });
+        const d = await r.json().catch(()=>({}));
+        if(!r.ok) throw new Error(d.error || r.status);
+        it.catalogued = true; it.category = category;   // update model so re-render/filter is correct
+        card.className = 'card done';
+        card.querySelector('.head').insertAdjacentHTML('beforeend', '');
+        card.querySelector('.addform').outerHTML = `<span class="astat">✓ added to <b>${esc(category)}</b></span>`;
+        const badgeHost = card.querySelector('.name');
+        if(!card.querySelector('.badge')) badgeHost.insertAdjacentHTML('afterend', '<span class="badge">✓ in library</span>');
+      }catch(e){ btn.disabled=false; btn.textContent='Add'; stat.textContent = 'failed: '+e.message; }
+    });
+  }
+
+  const selBtn = card.querySelector('.selbtn');
+  if(selBtn) selBtn.addEventListener('click', ()=> toggleSource(it, card, selBtn, ()=>activeTriggers));
+  const badge = card.querySelector('.badge');
+  if(badge && it.catalogued){
+    badge.addEventListener('click', ()=>{
+      if(!selectedSource) return;                       // no source picked -> badge inert
+      if(badge.classList.contains('confirming')) return; // already confirming
+      openReplaceConfirm(badge, it);
+    });
+  }
+
+  card._hay = ((it.name||'')+' '+(it.stem||'')+' '+(it.baseModel||'')+' '+(it.trainedWords||[]).join(' ')+' '+(it.tags||[]).join(' ')).toLowerCase();
+  card._cat = !!it.catalogued;
+  return card;
+}
+
+function render(){
+  const host = document.getElementById('grid');
+  host.innerHTML = '';
+  const f = document.getElementById('filter').value.trim().toLowerCase();
+  const onlyUncat = document.getElementById('onlyUncat').checked;
+  let shown = 0;
+  for(const it of ITEMS){
+    if(onlyUncat && it.catalogued) continue;
+    const el = cardEl(it);
+    if(f && !el._hay.includes(f)) continue;
+    host.appendChild(el); shown++;
+  }
+  document.getElementById('fcount').textContent = `${shown} shown`;
+}
+
+let ft=null;
+document.getElementById('filter').addEventListener('input', ()=>{ clearTimeout(ft); ft=setTimeout(render,120); });
+document.getElementById('onlyUncat').addEventListener('change', render);
+
+// ---- select-a-lora -> replace-an-in-library-entry ------------------------
+let selectedSource = null;     // {stem, name, trainedWords}
+let sourceCard = null, sourceBtn = null;
+let activeConfirm = null;      // {badge, orig, armTimer}
+
+function toggleSource(it, card, btn, getTriggers){
+  if(sourceCard === card){ clearSource(); return; }   // clicking the selected card again deselects
+  clearSource();
+  selectedSource = { stem: it.stem, name: it.name, trainedWords: getTriggers ? getTriggers() : (it.trainedWords || []) };
+  sourceCard = card; sourceBtn = btn;
+  card.classList.add('source');
+  btn.textContent = '✓ selected';
+  document.body.classList.add('has-source');
+  document.getElementById('selName').textContent = it.name;
+  document.getElementById('selbar').classList.add('on');
+}
+function clearSource(){
+  cancelConfirm();
+  if(sourceCard) sourceCard.classList.remove('source');
+  if(sourceBtn) sourceBtn.textContent = 'select';
+  selectedSource = sourceCard = sourceBtn = null;
+  document.body.classList.remove('has-source');
+  document.getElementById('selbar').classList.remove('on');
+}
+document.getElementById('selClear').addEventListener('click', clearSource);
+
+function openReplaceConfirm(badge, targetIt){
+  cancelConfirm();
+  activeConfirm = { badge, orig: badge.innerHTML };
+  badge.classList.add('confirming');
+  badge.innerHTML =
+    `<span class="rc-q">Replace with “${esc(selectedSource.name)}”?</span>` +
+    `<span class="rc-wait">wait…</span>` +
+    `<button class="rc-btn rc-yes" disabled title="confirm">✓</button>` +
+    `<button class="rc-btn rc-no" disabled title="cancel">✗</button>` +
+    `<span class="rc-bar"></span>`;
+  // kick the 2s progress bar on the next frame so the CSS transition runs
+  requestAnimationFrame(()=> badge.classList.add('counting'));
+  const yes = badge.querySelector('.rc-yes');
+  const no  = badge.querySelector('.rc-no');
+  no.addEventListener('click', e=>{ e.stopPropagation(); revertConfirm(); });
+  yes.addEventListener('click', async e=>{
+    e.stopPropagation();
+    if(!badge.classList.contains('armed')) return;     // still in the 2s lockout
+    await doReplace(targetIt, badge);
+  });
+  // arm both buttons after 2s and make it obvious they're now live
+  activeConfirm.armTimer = setTimeout(()=>{
+    badge.classList.add('armed');
+    yes.disabled = false; no.disabled = false;
+    const w = badge.querySelector('.rc-wait'); if(w) w.remove();
+  }, 2000);
+}
+function revertConfirm(){
+  if(!activeConfirm) return;
+  const { badge, orig } = activeConfirm;
+  badge.classList.remove('confirming','counting','armed');
+  badge.innerHTML = orig;
+  activeConfirm = null;
+}
+function cancelConfirm(){ if(activeConfirm){ clearTimeout(activeConfirm.armTimer); revertConfirm(); } }
+
+async function doReplace(targetIt, badge){
+  const q = badge.querySelector('.rc-q'); if(q) q.textContent = 'Replacing…';
+  try{
+    const r = await fetch('/collection/replace', {
+      method:'POST',
+      headers:{ ...authHeaders, 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        targetStem: targetIt.stem, targetCategory: targetIt.category,
+        sourceStem: selectedSource.stem, sourceName: selectedSource.name,
+        sourceSelectedTags: selectedSource.trainedWords
+      })
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.error || r.status);
+    activeConfirm = null;              // consumed
+    clearSource();
+    await load();                      // reflect superseded target + newly catalogued source
+  }catch(e){
+    if(q) q.textContent = 'Failed: ' + e.message;
+  }
+}
+
+load();
+</script>
+</body>
+</html>

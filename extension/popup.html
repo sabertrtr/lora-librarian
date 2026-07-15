@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    width: 300px; margin: 0; padding: 14px 14px 12px;
+    font: 13px/1.4 system-ui, sans-serif;
+  }
+  h1 { font-size: 14px; margin: 0 0 2px; display: flex; align-items: center; gap: 7px; }
+  h1 img { width: 18px; height: 18px; }
+  .status { font-size: 12px; margin: 0 0 12px; color: #888; }
+  .status.ok { color: #2e9e5b; }
+  .status.err { color: #d1435b; }
+  .counts { display: flex; gap: 8px; margin-bottom: 12px; }
+  .count { flex: 1; text-align: center; padding: 8px 4px; border-radius: 8px; background: rgba(128,128,128,.12); }
+  .count b { display: block; font-size: 18px; line-height: 1.1; }
+  .count span { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #888; }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; }
+  button {
+    flex: 1; padding: 8px; border: 0; border-radius: 8px; cursor: pointer;
+    font: inherit; background: #4f6bed; color: #fff;
+  }
+  button.ghost { background: rgba(128,128,128,.16); color: inherit; }
+  button:disabled { opacity: .5; cursor: default; }
+  .stage-row { display: flex; gap: 6px; margin: 10px 0 4px; }
+  .stage-row input {
+    flex: 1; min-width: 0; padding: 7px 8px; border-radius: 7px;
+    border: 1px solid rgba(128,128,128,.4); background: transparent; color: inherit; font: inherit;
+  }
+  .stage-row button { flex: 0 0 auto; padding: 7px 12px; }
+  .foot { display: flex; justify-content: space-between; margin-top: 10px; font-size: 11px; }
+  .foot a { color: #4f6bed; cursor: pointer; text-decoration: none; }
+  .msg { font-size: 11px; min-height: 14px; margin-top: 6px; color: #888; }
+</style>
+</head>
+<body>
+  <h1><img src="icon.svg" alt="">LoRA Librarian</h1>
+  <p class="status" id="status">Checking service…</p>
+
+  <div class="counts">
+    <div class="count"><b id="c-review">–</b><span>to review</span></div>
+    <div class="count"><b id="c-done">–</b><span>downloaded</span></div>
+    <div class="count"><b id="c-flagged">–</b><span>flagged</span></div>
+  </div>
+
+  <div class="row">
+    <button id="open-gallery">Open gallery</button>
+    <button id="open-library" class="ghost">Library</button>
+  </div>
+
+  <div class="stage-row">
+    <input id="url" type="url" placeholder="Paste a Civitai model URL…">
+    <button id="stage">Stage</button>
+  </div>
+  <div class="msg" id="msg"></div>
+
+  <div class="foot">
+    <a id="refresh">↻ Refresh</a>
+    <a id="options">Settings</a>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -4,6 +4,9 @@
   "private": true,
   "description": "Stage, review and catalogue Civitai LoRAs into a Dynamic Prompts wildcard file.",
   "license": "AGPL-3.0-or-later",
+  "author": "sabertrtr",
+  "homepage": "https://github.com/sabertrtr/lora-librarian",
+  "repository": { "type": "git", "url": "https://github.com/sabertrtr/lora-librarian.git" },
   "main": "electron/main.js",
   "scripts": {
     "start": "node src/server.js",

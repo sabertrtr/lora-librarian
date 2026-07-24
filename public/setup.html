@@ -60,14 +60,7 @@
 </style>
 </head>
 <body>
-  <div class="top">
-    <h1>Set up your LoRA library</h1>
-    <span class="nav">
-      <a id="catLink" href="#">⚙ Categories</a>
-      <a id="collectionLink" href="#">🗃 Collection</a>
-      <a id="libraryLink" href="#">📚 Library</a>
-    </span>
-  </div>
+  <h1 id="scanTitle">Set up your LoRA library</h1>
   <p class="lead">Point the librarian at the folder where your LoRA <code>.safetensors</code> files live.
     It scans locally in your browser and only ever sends a file's <b>hash</b> to the server — never the file itself.</p>
 
@@ -104,13 +97,28 @@
 
   <div id="grid" class="grid"></div>
 
+<script src="/appheader.js"></script>
 <script src="/hoverpreview.js"></script>
 <script>
 const K = new URLSearchParams(location.search).get('k');
 const authHeaders = K ? { 'x-service-token': K } : {};
 const kq = K ? `?k=${encodeURIComponent(K)}` : '';
-for(const [id,path] of [['catLink','/category-setup'],['catCta','/category-setup'],['collectionLink','/collection'],['libraryLink','/library']])
-  document.getElementById(id).href = path + kq;
+AppHeader.mount({ active:'scan', token:K });
+document.getElementById('catCta').href = '/category-setup' + kq;
+
+// ?new=1 -- arrived from the header's "Scan for new additions" button. Same scan,
+// framed as an incremental refresh: pass 2 already skips anything in the cache
+// (GET /scan/known), so re-picking the same folder only hashes what's new. The
+// folder picker CANNOT be opened programmatically (it needs a user gesture), so
+// this re-labels the page and points at the button rather than auto-starting.
+const NEWMODE = new URLSearchParams(location.search).get('new') === '1';
+if(NEWMODE){
+  document.title = 'LoRA Librarian -- Scan for new additions';
+  document.getElementById('scanTitle').textContent = 'Scan for new additions';
+  document.querySelector('.lead').innerHTML =
+    'Pick your LoRA folder again — every file you have already matched is skipped, so only <b>new</b> ' +
+    '<code>.safetensors</code> get hashed and looked up. Nothing but the hash leaves your machine.';
+}
 HoverPreview.init({ headers: authHeaders });
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 const $ = id => document.getElementById(id);

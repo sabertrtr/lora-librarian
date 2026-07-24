@@ -227,7 +227,10 @@
     // assigning a category, but on pick it moves the entry (POST /recategorize by
     // stem + current category) and reports back. Use this identically on every
     // card surface so there's one repeatable UX and no platform drift.
-    // opts: { stem, category, onDone(newCat), onError(msg) }
+    // opts: { stem, lineText?, category, onDone(newCat), onError(msg) }
+    // lineText identifies a MERGED entry, which has no single stem -- the server
+    // accepts either and looks the entry up the same way, so there is still only
+    // one re-categorize backend.
     recategorize(hostEl, opts) {
       opts = opts || {};
       let category = opts.category || '';
@@ -240,7 +243,7 @@
           try {
             const r = await fetch('/recategorize', {
               method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ stem: opts.stem, fromCategory: prev, toCategory: picked })
+              body: JSON.stringify({ stem: opts.stem, lineText: opts.lineText || undefined, fromCategory: prev, toCategory: picked })
             });
             const d = await r.json().catch(() => ({}));
             if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));

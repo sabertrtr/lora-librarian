@@ -3,12 +3,27 @@
 Stage, review, and catalogue Civitai LoRAs into a [Dynamic Prompts](https://github.com/adieyal/sd-dynamic-prompts)
 wildcard file for Stable Diffusion (Forge / A1111).
 
-Right-click a Civitai model link in your browser → it **stages** the LoRA
-(metadata, preview image, trigger words, embedded training tags — but no full
+Right-click a Civitai model link — or the model page itself — and it **stages** the
+LoRA (metadata, preview image, trigger words, embedded training tags — but no full
 download yet). Review staged LoRAs in a gallery, pick the tags/category you want,
 then **Accept** to download the file and append a line to your wildcard file
 (`library.yaml`). Also browses/organises your existing local LoRA collection by
 matching files to Civitai by hash.
+
+### Merged cards
+Several LoRAs of the same subject can be **merged** into one card. The combined
+entry is a single Dynamic Prompts variant group, so a generation picks exactly one
+LoRA + its own prompt:
+
+```yaml
+- "{<lora:AyakaV1:1>, Ayaka, Genshin, blue hair | <lora:AyakaV2:1>, Ayaka, Genshin, kimono}"
+```
+
+That also keeps the odds honest — five variants of one character draw as often as
+any other single line instead of crowding out five different characters. Merged
+cards are striped (one stripe per LoRA), you can flip through the members and mark
+any of them inactive, and **Split apart** puts them back. Every edit comments the
+old line out rather than deleting it, so nothing is ever lost.
 
 Two parts:
 - **the service** — a Node/Express server that does the work and serves the web UI
@@ -42,7 +57,16 @@ the extension's secure context upgrades non-loopback `http` to `https`.
 Load `extension/` unpacked (Chrome: `chrome://extensions` → Load unpacked;
 Firefox: `about:debugging` → Load Temporary Add-on), or install a signed build.
 Open its **Options** and set the Service URL (default `http://127.0.0.1:8420`)
-and the service token, then right-click a Civitai model link.
+and the service token, then right-click a Civitai model link — or right-click
+anywhere on a Civitai model page to stage the model you're already looking at.
+
+## Tests
+```
+node scripts/test-merge.js
+```
+Exercises the wildcard-file editing primitives (merge/split/park, move, remove,
+the replaced-file marker) against a throwaway copy in a temp dir, and asserts your
+real `data/library.yaml` is byte-identical afterwards.
 
 Personal data (`data/library.yaml`, `.env`, caches, downloads, certs) is
 gitignored; `data/library.example.yaml` is the empty seed.

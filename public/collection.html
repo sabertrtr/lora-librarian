@@ -88,17 +88,6 @@
 </style>
 </head>
 <body>
-  <div class="top">
-    <h1>My Collection</h1>
-    <span class="sub" id="sub">Loading…</span>
-    <span class="nav">
-      <a id="scanLink" href="#">📁 Scan</a>
-      <a id="catLink" href="#">⚙ Categories</a>
-      <a id="libraryLink" href="#">📚 Library</a>
-      <a id="curateLink" href="#">✎ Curate</a>
-      <a id="galleryLink" href="#">↩ Gallery</a>
-    </span>
-  </div>
   <div class="tools">
     <input id="filter" placeholder="Filter by name, stem, tag, base model…" autocomplete="off">
     <label class="toggle"><input type="checkbox" id="onlyUncat"> only uncatalogued</label>
@@ -111,6 +100,7 @@
   <div id="grid" class="grid"></div>
   <div id="empty" style="display:none">No cached LoRAs. Run scripts/match-hashes.js first.</div>
 
+<script src="/appheader.js"></script>
 <script src="/hoverpreview.js"></script>
 <script src="/catpicker.js"></script>
 <script src="/alternates.js"></script>
@@ -118,11 +108,7 @@
 const K = new URLSearchParams(location.search).get('k');
 const authHeaders = K ? { 'x-service-token': K } : {};
 const kq = K ? `?k=${encodeURIComponent(K)}` : '';
-document.getElementById('libraryLink').href = '/library' + kq;
-document.getElementById('galleryLink').href = '/gallery' + kq;
-document.getElementById('curateLink').href = '/curate' + kq;
-document.getElementById('scanLink').href = '/setup' + kq;
-document.getElementById('catLink').href = '/category-setup' + kq;
+AppHeader.mount({ active:'collection', token:K, info:'Loading…' });
 
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 HoverPreview.init({ headers: authHeaders });

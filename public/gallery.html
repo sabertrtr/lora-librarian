@@ -109,12 +109,11 @@
 </style>
 </head>
 <body>
-  <h1>LoRA Staging Gallery <a id="libraryLink" href="#" style="font-size:.8rem;font-weight:400;margin-left:.6rem;color:#9ec5ff;">library →</a></h1>
-  <div class="sub" id="sub">Loading…</div>
   <div id="sections"></div>
   <div id="empty" style="display:none">Nothing staged yet. Right-click a Civitai model in your browser to add one.</div>
   <img id="hoverPreview" alt="">
 
+<script src="/appheader.js"></script>
 <script src="/catpicker.js"></script>
 <script>
 const K = new URLSearchParams(location.search).get('k');
@@ -125,7 +124,7 @@ const COLLAPSE_KEY = 'gal_collapsed';
 let collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]'));
 const RARE = 5; // training tags with fewer than this many instances are hidden by default
 const hoverEl = document.getElementById('hoverPreview');
-document.getElementById('libraryLink').href = K ? `/library?k=${encodeURIComponent(K)}` : '/library';
+AppHeader.mount({ active:'gallery', token:K, info:'Loading…' });
 
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 // Mirror of server ensureEscaped(): normalize full-width parens to ascii, then

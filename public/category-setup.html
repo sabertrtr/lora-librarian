@@ -52,15 +52,6 @@
 </style>
 </head>
 <body>
-  <div class="top">
-    <h1>Categories</h1>
-    <span class="nav">
-      <a id="setupLink" href="#">📁 Scan</a>
-      <a id="libraryLink" href="#">📚 Library</a>
-      <a id="curateLink" href="#">✎ Curate</a>
-      <a id="collectionLink" href="#">🗃 Collection</a>
-    </span>
-  </div>
   <p class="lead">Your category buckets. The four <b>headers</b> are your top-level categories; add more roots or nest
     sub-categories under any node. <b>Drag a category</b> (by its ⠿ handle) onto another to re-parent it — moves are
     staged and only written when you hit <b>Apply</b>. Click a ▸ to collapse. Loras travel with their category.</p>
@@ -80,6 +71,7 @@
     <button class="b prim" id="applyBtn">Apply changes</button>
   </div>
 
+<script src="/appheader.js"></script>
 <script>
 const K = new URLSearchParams(location.search).get('k');
 const authHeaders = K ? { 'x-service-token': K } : {};

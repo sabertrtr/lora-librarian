@@ -5,7 +5,8 @@ const fs = require('fs');
 const https = require('https');
 const { resolveVersion, searchModels, fetchModelVersions, downloadPrimaryFile, fileStem, fetchModelTags, fetchHeaderPrefix, lookupByHash } = require('./civitai');
 const { screenModel } = require('./safety');
-const { listCategoryKeys, createCategory, renameHeadings, appendLine, findFlaggedLines, replaceFlaggedLine, replaceExactLine, removeExactLine, moveEntry, removeEntry, editEntry, listCommentedEntries, deleteLines } = require('./yamlEdit');
+const { listCategoryKeys, createCategory, renameHeadings, appendLine, findFlaggedLines, replaceFlaggedLine, replaceExactLine, removeExactLine, moveEntry, removeEntry, editEntry, listCommentedEntries, deleteLines, parseComposedLine, mergeEntries, splitMerged, setMemberActive, MAX_MERGE_MEMBERS } = require('./yamlEdit');
+const { markReplaced } = require('./loraFiles');
 const crypto = require('crypto');
 const { extractTagFrequency, extractTagFrequencyFromBuffer } = require('./safetensors');
 const { ensureEscaped, ensureEscapedLine } = require('./promptEscape');
@@ -54,6 +55,7 @@ app.use((req, res, next) => {
   if (req.path === '/setup' || req.path === '/category-setup') return next();
   // Shared client components (no secret in them) served to the exempt HTML pages.
   if (req.path === '/hoverpreview.js' || req.path === '/catpicker.js' || req.path === '/alternates.js') return next();
+  if (req.path === '/appheader.js' || req.path === '/mergecard.js') return next();
 
   if (req.get('x-service-token') !== SERVICE_TOKEN) {
     return res.status(401).json({ error: 'bad or missing x-service-token header' });
@@ -412,6 +414,7 @@ app.post('/staging/:id/accept', async (req, res) => {
   if (!category) return res.status(400).json({ error: 'pick a category (character/concept/environment/style) before accepting' });
   if (!lineText) return res.status(400).json({ error: 'lineText is empty -- nothing to write' });
 
+  let replacedFile = null;   // set only on the replace-a-flagged-entry path
   try {
     if (!rec.downloaded) {
       // Re-resolve for a fresh download URL/token (Civitai URLs are scoped).
@@ -428,6 +431,12 @@ app.post('/staging/:id/accept', async (req, res) => {
         const idx = match ? match.lineIndex : rec.replaceLineIndex;
         if (idx != null && idx >= 0) replaceFlaggedLine(WILDCARDS_FILE, idx, lineText);
         else appendLine(WILDCARDS_FILE, category, lineText);
+        // Mark the superseded lora's file on disk (best-effort -- see loraFiles.js).
+        // The flagged raw line is a yaml entry, so recover the stem from its
+        // quoted content rather than the raw line itself.
+        const oldContent = (rec.replaceLineText || '').match(/^\s*-\s*"(.*)"\s*(#.*)?$/);
+        const oldStem = oldContent ? parseComposedLine(oldContent[1].replace(/\\"/g, '"')).stem : null;
+        if (oldStem && oldStem !== rec.stem) replacedFile = markReplaced(DOWNLOAD_DIR, oldStem);
       } else {
         appendLine(WILDCARDS_FILE, category, lineText);
       }
@@ -449,7 +458,7 @@ app.post('/staging/:id/accept', async (req, res) => {
       writtenLine: lineText,
       writtenCategory: category
     });
-    res.json({ ok: true, lineText, record: updated });
+    res.json({ ok: true, lineText, record: updated, replacedFile });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -601,6 +610,19 @@ app.get('/alternates.js', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/alternates.js'));
 });
 
+// Shared static header + tab bar (auth-exempt; no secret -- it reads ?k= from the
+// host page's own URL, same as every page's nav links already did).
+app.get('/appheader.js', (req, res) => {
+  res.type('application/javascript');
+  res.sendFile(path.join(__dirname, '../public/appheader.js'));
+});
+
+// Shared merged-card renderer: stripes, MERGED badge, member flipper (auth-exempt).
+app.get('/mergecard.js', (req, res) => {
+  res.type('application/javascript');
+  res.sendFile(path.join(__dirname, '../public/mergecard.js'));
+});
+
 app.get('/review', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/review.html'));
 });
@@ -640,24 +662,37 @@ app.get('/collection', (req, res) => {
 // (file order), enriched with Civitai data from data/civitai_cache.json (keyed
 // by lora stem) when the reverse hash-match has been run. Token-required.
 const CIVITAI_CACHE_FILE = process.env.CIVITAI_CACHE_FILE || path.join(WILDCARDS_DIR, 'civitai_cache.json');
+
+function readCivitaiCache() {
+  try { return JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { return {}; }
+}
+
+// Attach the hash-match cache's Civitai data (image / model id / base model) to a
+// parsed entry, by lora stem. A MERGED entry has no single stem, so each MEMBER is
+// enriched instead -- that's what lets the card's member flipper show the right
+// image per lora. Shared by /lines and /curate-data so the two can't drift.
+function enrichItem(it, cache) {
+  if (it.merged) {
+    return { ...it, members: (it.members || []).map(m => enrichItem(m, cache)) };
+  }
+  const civ = it.stem && cache[it.stem];
+  return civ ? {
+    ...it,
+    modelId: civ.modelId, versionId: civ.versionId,
+    imageThumb: civ.imageThumb, imageFull: civ.imageFull,
+    imageNsfwLevel: civ.imageNsfwLevel, civitaiName: civ.name, civitaiBaseModel: civ.baseModel
+  } : it;
+}
+
+function enrichedCategories() {
+  const { parseLibrary } = require('./yamlEdit');
+  const cache = readCivitaiCache();
+  return parseLibrary(WILDCARDS_FILE).map(c => ({ ...c, items: c.items.map(it => enrichItem(it, cache)) }));
+}
+
 app.get('/lines', (req, res) => {
   try {
-    const { parseLibrary } = require('./yamlEdit');
-    let cache = {};
-    try { cache = JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { /* no cache yet */ }
-    const categories = parseLibrary(WILDCARDS_FILE).map(c => ({
-      ...c,
-      items: c.items.map(it => {
-        const civ = it.stem && cache[it.stem];
-        return civ ? {
-          ...it,
-          modelId: civ.modelId, versionId: civ.versionId,
-          imageThumb: civ.imageThumb, imageFull: civ.imageFull,
-          imageNsfwLevel: civ.imageNsfwLevel, civitaiName: civ.name, civitaiBaseModel: civ.baseModel
-        } : it;
-      })
-    }));
-    res.json({ categories });
+    res.json({ categories: enrichedCategories() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -674,10 +709,16 @@ app.get('/collection-data', (req, res) => {
     try { cache = JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { /* no cache yet */ }
 
     // Map each catalogued stem -> its category, so cards can show a badge and
-    // hide the "add" action for ones already in the file.
+    // hide the "add" action for ones already in the file. A MERGED entry holds
+    // several loras behind one line, so every member counts as catalogued --
+    // otherwise merging two cards would make them both reappear here as
+    // "uncatalogued" and invite a duplicate add.
     const cataloguedCategory = {};
     for (const c of parseLibrary(WILDCARDS_FILE)) {
-      for (const it of c.items) if (it.stem) cataloguedCategory[it.stem] = c.category;
+      for (const it of c.items) {
+        if (it.merged) { for (const m of (it.members || [])) if (m.stem) cataloguedCategory[m.stem] = c.category; }
+        else if (it.stem) cataloguedCategory[it.stem] = c.category;
+      }
     }
 
     const items = Object.values(cache).map(civ => ({
@@ -746,7 +787,12 @@ app.post('/collection/replace', (req, res) => {
 
     const lineText = ensureEscapedLine(composeLine(sourceStem, weight, sourceName, '', selectedTags));
     replaceFlaggedLine(WILDCARDS_FILE, item.lineIndex, lineText);
-    res.json({ ok: true, lineText, category: targetCategory, superseded: targetStem });
+    // The superseded lora's FILE is now unreferenced -- mark it on disk so it can
+    // be found and purged later. Best-effort: it usually lives in the user's Forge
+    // loras folder on another machine, which this service cannot see (see
+    // loraFiles.js), so a miss is reported, never an error.
+    const file = markReplaced(DOWNLOAD_DIR, targetStem);
+    res.json({ ok: true, lineText, category: targetCategory, superseded: targetStem, file });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -767,21 +813,12 @@ function fileRevision() {
 // (incl. empty ones, so they can be drag targets), and the current revision.
 app.get('/curate-data', (req, res) => {
   try {
-    const { parseLibrary } = require('./yamlEdit');
-    let cache = {};
-    try { cache = JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { /* no cache */ }
-    const categories = parseLibrary(WILDCARDS_FILE).map(c => ({
-      ...c,
-      items: c.items.map(it => {
-        const civ = it.stem && cache[it.stem];
-        return civ ? {
-          ...it, modelId: civ.modelId, versionId: civ.versionId,
-          imageThumb: civ.imageThumb, imageFull: civ.imageFull, imageNsfwLevel: civ.imageNsfwLevel,
-          civitaiName: civ.name, civitaiBaseModel: civ.baseModel
-        } : it;
-      })
-    }));
-    res.json({ categories, allCategories: listCategoryKeys(WILDCARDS_FILE), revision: fileRevision() });
+    res.json({
+      categories: enrichedCategories(),
+      allCategories: listCategoryKeys(WILDCARDS_FILE),
+      maxMergeMembers: MAX_MERGE_MEMBERS,
+      revision: fileRevision()
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -832,15 +869,18 @@ app.post('/curate/edit', (req, res) => {
 // stem is no longer in fromCategory (another window OR the extension's accept
 // moved/rewrote it), it 409s so the caller refreshes -- no revision to thread
 // through every page. Uses the same moveEntry() primitive as the curate drag.
+// lineText is the MERGED-card path: a merged entry has no single stem to look up,
+// so the caller identifies it by its exact composed line instead. Same route, same
+// guard semantics -- one backend, no second re-categorize implementation.
 app.post('/recategorize', (req, res) => {
   const { parseLibrary } = require('./yamlEdit');
-  const { stem, fromCategory, toCategory } = req.body;
-  if (!stem || !fromCategory || !toCategory) return res.status(400).json({ error: 'stem, fromCategory, toCategory required' });
+  const { stem, lineText, fromCategory, toCategory } = req.body;
+  if ((!stem && !lineText) || !fromCategory || !toCategory) return res.status(400).json({ error: 'stem (or lineText), fromCategory, toCategory required' });
   if (fromCategory === toCategory) return res.json({ ok: true, category: toCategory, revision: fileRevision() });
   try {
     const cat = parseLibrary(WILDCARDS_FILE).find(c => c.category === fromCategory);
-    const item = cat && cat.items.find(it => it.stem === stem);
-    if (!item) return res.status(409).json({ error: `"${stem}" is no longer in ${fromCategory} -- refresh`, revision: fileRevision() });
+    const item = cat && cat.items.find(it => (lineText ? it.rawLine === lineText : it.stem === stem));
+    if (!item) return res.status(409).json({ error: `"${stem || 'that entry'}" is no longer in ${fromCategory} -- refresh`, revision: fileRevision() });
     if (!moveEntry(WILDCARDS_FILE, fromCategory, toCategory, item.rawLine)) {
       return res.status(409).json({ error: 'move failed -- refresh', revision: fileRevision() });
     }
@@ -848,6 +888,39 @@ app.post('/recategorize', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ---- merged cards -----------------------------------------------------------
+// Several loras behind ONE card, written as a single Dynamic Prompts variant
+// group so Forge picks one lora+prompt combo per generation. All three routes are
+// revision-guarded exactly like the curate mutations (same guardedMutation), and
+// all three are text-based, so a hand-edited file never desyncs them.
+
+// POST /merge { category, lineTexts:[>=2], baseRevision } -- comment out the
+// sources, write one combined entry. Merging an already-merged card flattens it,
+// which is how you add a 3rd..10th lora to an existing merged card.
+app.post('/merge', (req, res) => {
+  const { category } = req.body;
+  const lineTexts = Array.isArray(req.body.lineTexts) ? req.body.lineTexts.filter(Boolean) : [];
+  if (!category || lineTexts.length < 2) return res.status(400).json({ error: 'category and at least two lineTexts required' });
+  guardedMutation(req, res, () => mergeEntries(WILDCARDS_FILE, category, lineTexts));
+});
+
+// POST /merge/split { category, lineText, baseRevision } -- comment out the merged
+// entry, re-add every member (active AND parked) as its own entry.
+app.post('/merge/split', (req, res) => {
+  const { category, lineText } = req.body;
+  if (!category || !lineText) return res.status(400).json({ error: 'category, lineText required' });
+  guardedMutation(req, res, () => splitMerged(WILDCARDS_FILE, category, lineText));
+});
+
+// POST /merge/member { category, lineText, memberText, active, baseRevision } --
+// park (active:false) or restore (active:true) one member. Parked members live on
+// `# MERGE_OFF[n]:` comment lines: invisible to Forge, still on the card.
+app.post('/merge/member', (req, res) => {
+  const { category, lineText, memberText } = req.body;
+  if (!category || !lineText || !memberText) return res.status(400).json({ error: 'category, lineText, memberText required' });
+  guardedMutation(req, res, () => setMemberActive(WILDCARDS_FILE, category, lineText, memberText, !!req.body.active));
 });
 
 // GET /cleanup-data -> every tool-commented-out entry (# SUPERSEDED / # REMOVED)

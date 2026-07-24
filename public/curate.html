@@ -95,27 +95,39 @@
   .cu-marker.removed { background:rgba(200,80,90,.18); color:#f0a0a8; }
   .cu-cat { color:var(--muted); flex:0 0 auto; max-width:11rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .cu-content { font-family:ui-monospace,monospace; color:#cbd3df; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1 1 auto; }
+
+  /* merge: pick two-or-more cards in ONE category, then the action bar appears */
+  .pick { flex:0 0 auto; cursor:pointer; margin:0 .1rem 0 0; }
+  .lcard.picked { border-color:#4d7ab8; box-shadow:0 0 0 1px #4d7ab8 inset; }
+  .mergebar { position:fixed; left:50%; transform:translateX(-50%); bottom:1.1rem; z-index:900; display:none;
+              align-items:center; gap:.75rem; background:#161a22; border:1px solid #3b5bbf; border-radius:12px;
+              padding:.55rem .9rem; box-shadow:0 14px 40px rgba(0,0,0,.6); font-size:.85rem; }
+  .mergebar.on { display:flex; }
+  .mergebar b { color:#fff; }
+  .mergebar .mb-warn { color:#ffcf7a; }
+  .mb-go { background:#3b82f6; border:none; color:#04122b; font-weight:700; border-radius:8px; padding:.35rem .9rem; cursor:pointer; font-size:.82rem; }
+  .mb-go[disabled] { opacity:.45; cursor:default; }
+  .mb-clear { background:none; border:none; color:#8b93a0; cursor:pointer; font-size:.82rem; }
+  .splitbtn { border-color:#4d7ab8; color:#cfe2ff; }
 </style>
 </head>
 <body>
-  <div class="top">
-    <h1>Curate</h1>
-    <span class="sub" id="sub">Loading…</span>
-    <span class="nav">
-      <a id="libraryLink" href="#">📚 Library</a>
-      <a id="collectionLink" href="#">🗃 Collection</a>
-      <a id="galleryLink" href="#">↩ Gallery</a>
-    </span>
-  </div>
   <div class="tools">
     <input id="filter" placeholder="Filter by name, tag, category, lora…" autocomplete="off">
     <span class="sub" id="fcount"></span>
     <button id="viewToggle" class="vbtn">▦ Grid view</button>
     <button id="cleanupBtn" class="vbtn">🧹 Cleanup</button>
-    <span class="sub">· drag a card onto a category to move it · click to expand</span>
+    <span class="sub">· drag a card onto a category to move it · click to expand · tick 2+ in one category to merge</span>
   </div>
   <div id="banner"></div>
   <div id="sections"></div>
+
+  <div id="mergebar" class="mergebar">
+    <span id="mbCount"></span>
+    <span id="mbWarn" class="mb-warn"></span>
+    <button id="mbGo" class="mb-go">Merge into one card</button>
+    <button id="mbClear" class="mb-clear">clear</button>
+  </div>
 
   <div id="cuModal" class="cu-modal" style="display:none">
     <div class="cu-box">
@@ -130,18 +142,18 @@
     </div>
   </div>
 
+<script src="/appheader.js"></script>
 <script src="/hoverpreview.js"></script>
 <script src="/alternates.js"></script>
 <script src="/catpicker.js"></script>
+<script src="/mergecard.js"></script>
 <script>
 const K = new URLSearchParams(location.search).get('k');
 const authHeaders = K ? { 'x-service-token': K } : {};
-const kq = K ? `?k=${encodeURIComponent(K)}` : '';
-document.getElementById('libraryLink').href = '/library' + kq;
-document.getElementById('collectionLink').href = '/collection' + kq;
-document.getElementById('galleryLink').href = '/gallery' + kq;
+AppHeader.mount({ active:'curate', token:K, info:'Loading…' });
 HoverPreview.init({ headers: authHeaders });
 Alternates.init({ headers: authHeaders, token: K });
+MergeCard.init({ headers: authHeaders });
 
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
@@ -162,23 +174,68 @@ function deriveName(line){
   return (name||'(unnamed)').replace(/\\([()])/g,'$1');
 }
 
-let ALLCATS=[], CATS={}, revision='';
+let ALLCATS=[], CATS={}, revision='', MAXMERGE=10;
 const host=document.getElementById('sections'), bannerEl=document.getElementById('banner');
 let dragged=null;
+// rawLine -> {category,name}. Keyed by the exact composed line because that IS the
+// server's identity for an entry (there is no id in a text file), and it survives
+// a re-render/filter without needing DOM state.
+const selected=new Map();
 
 async function load(){
   try{
     const r=await fetch('/curate-data',{headers:authHeaders});
     if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||r.status);
     const d=await r.json();
-    ALLCATS=d.allCategories||[]; revision=d.revision;
+    ALLCATS=d.allCategories||[]; revision=d.revision; MAXMERGE=d.maxMergeMembers||10;
     CatPicker.init({ headers: authHeaders, categories: ALLCATS });
     CATS={}; for(const c of (d.categories||[])) CATS[c.category]=c.items;
     const total=Object.values(CATS).reduce((n,a)=>n+a.length,0);
-    document.getElementById('sub').textContent=`${total} entries · ${ALLCATS.length} categories`;
+    const mergedCount=Object.values(CATS).reduce((n,a)=>n+a.filter(i=>i.merged).length,0);
+    AppHeader.setInfo(`${total} entries · ${ALLCATS.length} categories${mergedCount?` · ${mergedCount} merged`:''}`);
+    // Drop selections whose line no longer exists (it was merged, split or edited).
+    const live=new Set(Object.values(CATS).flat().map(i=>i.rawLine));
+    for(const k of [...selected.keys()]) if(!live.has(k)) selected.delete(k);
     render();
-  }catch(e){ document.getElementById('sub').textContent='Failed to load: '+e.message; }
+  }catch(e){ AppHeader.setInfo('Failed to load: '+e.message); }
 }
+
+// ---- merge selection --------------------------------------------------------
+// Merging is restricted to ONE category on purpose: the combined entry has to be
+// written under a single yaml heading, and a split has to know where to put the
+// members back. Cross-category merging would have to silently pick a winner.
+function updateMergeBar(){
+  const bar=document.getElementById('mergebar');
+  const n=selected.size;
+  if(n===0){ bar.classList.remove('on'); return; }
+  bar.classList.add('on');
+  const cats=new Set([...selected.values()].map(v=>v.category));
+  const members=[...selected.keys()].reduce((sum,line)=>{
+    const it=Object.values(CATS).flat().find(i=>i.rawLine===line);
+    return sum + (it && it.merged ? (it.members||[]).length : 1);
+  },0);
+  document.getElementById('mbCount').innerHTML=`<b>${n}</b> selected <span class="sub">(${members} lora${members===1?'':'s'})</span>`;
+  let warn='';
+  if(n<2) warn='pick one more to merge';
+  else if(cats.size>1) warn=`⚠ ${cats.size} different categories — merge only works within one`;
+  else if(members>MAXMERGE) warn=`⚠ that would be ${members} loras (max ${MAXMERGE})`;
+  document.getElementById('mbWarn').textContent=warn;
+  document.getElementById('mbGo').disabled = !!warn;
+}
+document.getElementById('mbClear').addEventListener('click', ()=>{ selected.clear(); updateMergeBar(); render(); });
+document.getElementById('mbGo').addEventListener('click', async ()=>{
+  const lineTexts=[...selected.keys()];
+  const category=[...selected.values()][0].category;
+  const go=document.getElementById('mbGo');
+  go.disabled=true; go.textContent='Merging…';
+  const r=await mutate('/merge',{category, lineTexts});
+  go.textContent='Merge into one card';
+  if(r.conflict) return;
+  if(r.error){ showBanner('Merge failed: '+r.error); setTimeout(()=>bannerEl.classList.remove('on'),3500); updateMergeBar(); return; }
+  selected.clear();
+  await load();
+  updateMergeBar();
+});
 
 function showBanner(msg){ bannerEl.textContent=msg; bannerEl.classList.add('on'); }
 
@@ -204,6 +261,7 @@ function render(){
     host.appendChild(sectionEl(cat, items));
   }
   document.getElementById('fcount').textContent = f ? `${shown} match` : '';
+  updateMergeBar();
 }
 
 function sectionEl(cat, items){
@@ -220,42 +278,54 @@ function sectionEl(cat, items){
 }
 
 function cardEl(it, category){
+  const merged = !!it.merged;
+  // A merged card has no single image/model of its own -- borrow the first ACTIVE
+  // member's for the collapsed row; the detail panel flips through them all.
+  const face = merged ? ((it.members||[]).find(m=>m.active) || (it.members||[])[0] || {}) : it;
   const card=document.createElement('div');
   card.className='lcard'+(it.flagged?' flagged':'');
   card.draggable=true;
-  const mini = it.imageThumb
-    ? `<img class="mini" src="${esc(it.imageThumb)}" data-full="${esc(it.imageFull||'')}" data-version="${esc(it.versionId||'')}" data-model="${esc(it.modelId||'')}">`
+  const mini = face.imageThumb
+    ? `<img class="mini" src="${esc(face.imageThumb)}" data-full="${esc(face.imageFull||'')}" data-version="${esc(face.versionId||'')}" data-model="${esc(face.modelId||'')}">`
     : `<div class="miniph"></div>`;
   const thumb = it.imageThumb
     ? `<img class="thumb" src="${esc(it.imageThumb)}" data-full="${esc(it.imageFull||'')}" data-version="${esc(it.versionId||'')}" data-model="${esc(it.modelId||'')}">`
     : `<div class="thumbph"></div>`;
-  const civ = it.modelId ? `<a class="civ" href="https://civitai.com/models/${it.modelId}" target="_blank" rel="noopener">civitai ↗</a>` : '';
-  const chips=(it.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('') || '<span class="chip" style="opacity:.6">no tags</span>';
+  const civ = (!merged && it.modelId) ? `<a class="civ" href="https://civitai.com/models/${it.modelId}" target="_blank" rel="noopener">civitai ↗</a>` : '';
+  const chips = merged
+    ? (it.members||[]).map(m=>`<span class="chip"${m.active?'':' style="opacity:.5;text-decoration:line-through"'}>${esc(m.name||m.stem||'?')}</span>`).join('')
+    : ((it.tags||[]).map(t=>`<span class="chip">${esc(t)}</span>`).join('') || '<span class="chip" style="opacity:.6">no tags</span>');
+  const rowlora = merged
+    ? `<span class="rowlora">${(it.members||[]).filter(m=>m.active).length} of ${(it.members||[]).length} active</span>`
+    : `<span class="rowlora">&lt;lora:${esc(it.stem||'?')}:${esc(it.weight||'1')}&gt;</span>`;
   card.innerHTML=`
     <div class="lrow">
+      <input type="checkbox" class="pick" title="select for merge">
       <span class="grip" title="drag to another category">⠿</span>
       ${mini}
       <span class="cname">${esc(it.name||'(unnamed)')}</span>
+      ${merged?MergeCard.badgeHtml(it):''}
       ${it.flagged?'<span class="cflag">NEEDS_REPLACEMENT</span>':''}
-      <span class="rowlora">&lt;lora:${esc(it.stem||'?')}:${esc(it.weight||'1')}&gt;</span>
+      ${rowlora}
       <span class="rowchips">${chips}</span>
-      <button class="altbtn rowalt">🔍 alternates</button>
+      ${merged?'':'<button class="altbtn rowalt">🔍 alternates</button>'}
       <span class="spacer"></span>
       ${civ}
       <span class="caret">▸</span>
     </div>
     <div class="detail">
-      <div class="dtop">
+      <div class="mergehost"></div>
+      ${merged?'':`<div class="dtop">
         ${thumb}
         <div style="min-width:0">
           <div class="lora">&lt;lora:${esc(it.stem||'?')}:${esc(it.weight||'1')}&gt;</div>
           <div class="chips">${chips}</div>
         </div>
-      </div>
+      </div>`}
       <textarea class="editline" spellcheck="false">${esc(it.rawLine)}</textarea>
       <div class="dactions">
         <button class="savebtn">Save line</button>
-        <button class="altbtn2 altbtn">🔍 alternates</button>
+        ${merged?'<button class="splitbtn">⑂ Split apart</button>':'<button class="altbtn2 altbtn">🔍 alternates</button>'}
         <span class="dlabel">move to</span><span class="recat"></span>
         <span class="spacer"></span>
         <button class="rmbtn">Remove</button>
@@ -264,11 +334,47 @@ function cardEl(it, category){
       <div class="raw">${esc(it.rawLine)}</div>
     </div>`;
 
+  if(merged){
+    MergeCard.decorate(card, it);
+    // Parking a member rewrites the entry line, so the card's identity (its
+    // rawLine) changes underneath us -> reload rather than try to patch in place.
+    card.querySelector('.mergehost').appendChild(MergeCard.panel(it, {
+      onToggle: async (m, active) => {
+        const r = await mutate('/merge/member', { category, lineText: it.rawLine, memberText: m.rawMember, active });
+        if(r.conflict) return { error:'reloading…' };
+        if(r.error) return { error:r.error };
+        setTimeout(load, 60);
+        return {};
+      }
+    }));
+    card.querySelector('.splitbtn').addEventListener('click', async ()=>{
+      const n=(it.members||[]).length;
+      if(!confirm(`Split this card back into ${n} separate entries?\n\nThe combined line is commented out and each lora is re-added on its own.`)) return;
+      const stat=card.querySelector('.dstat'); stat.textContent='splitting…';
+      const r=await mutate('/merge/split',{category, lineText:it.rawLine});
+      if(r.conflict) return;
+      if(r.error){ stat.textContent='failed: '+r.error; return; }
+      load();
+    });
+  }
+
   // expand on click of the row (ignore clicks on links/buttons; no drag while open)
   card.querySelector('.lrow').addEventListener('click', e=>{
-    if(e.target.closest('a,button')) return;
+    if(e.target.closest('a,button,input')) return;
     const open=card.classList.toggle('open');
     card.draggable=!open;                       // no drag while expanded (lets the textarea select)
+  });
+
+  // merge selection
+  const pick=card.querySelector('.pick');
+  pick.checked = selected.has(it.rawLine);
+  card.classList.toggle('picked', pick.checked);
+  pick.addEventListener('click', e=>e.stopPropagation());
+  pick.addEventListener('change', ()=>{
+    if(pick.checked) selected.set(it.rawLine, { category, name: it.name });
+    else selected.delete(it.rawLine);
+    card.classList.toggle('picked', pick.checked);
+    updateMergeBar();
   });
 
   // drag
@@ -281,8 +387,9 @@ function cardEl(it, category){
   // alternates
   card.querySelectorAll('.altbtn').forEach(b=> b.addEventListener('click', e=>{ e.stopPropagation(); Alternates.open({name: it.name, baseModel: it.civitaiBaseModel}); }));
   // same shared re-categorize control as everywhere else; moving re-homes the card
+  // A merged entry has no single stem, so it is identified by its exact line.
   const recatHost = card.querySelector('.recat');
-  if(recatHost) CatPicker.recategorize(recatHost, { stem: it.stem, category, onDone: ()=> load() });
+  if(recatHost) CatPicker.recategorize(recatHost, { stem: it.stem, lineText: merged?it.rawLine:null, category, onDone: ()=> load() });
 
   // save (edit)
   const stat=card.querySelector('.dstat');
@@ -294,6 +401,9 @@ function cardEl(it, category){
     const r=await mutate('/curate/edit',{category, oldLineText:it.rawLine, newLineText:newLine});
     if(r.conflict) return;
     if(r.error){ stat.textContent='failed: '+r.error; return; }
+    // A merged line's members/badge/stripes all derive from the line itself, so an
+    // edit there has to re-render rather than patch the name in place.
+    if(merged){ stat.textContent='saved ✓'; load(); return; }
     it.rawLine=r.lineText;
     card.querySelector('.raw').textContent=r.lineText;
     card.querySelector('.editline').value=r.lineText;

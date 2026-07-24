@@ -61,11 +61,6 @@
 </style>
 </head>
 <body>
-  <div class="top">
-    <h1>LoRA Library</h1>
-    <span class="sub" id="sub">Loading…</span>
-    <span class="nav"><a id="curateLink" href="#">✎ Curate</a> · <a id="collectionLink" href="#">🗃 Collection</a> · <a id="galleryLink" href="#">↩ Staging gallery</a></span>
-  </div>
   <div class="tools">
     <input id="filter" placeholder="Filter by name, tag, category, or lora…" autocomplete="off">
     <span class="sub" id="fcount"></span>
@@ -73,19 +68,19 @@
   <div id="sections"></div>
   <div id="empty" style="display:none">characters.yaml has no entries.</div>
 
+<script src="/appheader.js"></script>
 <script src="/hoverpreview.js"></script>
 <script src="/alternates.js"></script>
 <script src="/catpicker.js"></script>
+<script src="/mergecard.js"></script>
 <script>
 const K = new URLSearchParams(location.search).get('k');
 const authHeaders = K ? { 'x-service-token': K } : {};
-const kq = K ? `?k=${encodeURIComponent(K)}` : '';
-document.getElementById('galleryLink').href = '/gallery' + kq;
-document.getElementById('collectionLink').href = '/collection' + kq;
-document.getElementById('curateLink').href = '/curate' + kq;
+AppHeader.mount({ active:'library', token:K, info:'Loading…' });
 
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 HoverPreview.init({ headers: authHeaders });
+MergeCard.init({ headers: authHeaders });
 let CATS = [];
 const HEADERS = ['character','style','concept','environment'];
 const COLLAPSE_KEY = 'lib_collapsed';
@@ -97,46 +92,62 @@ async function load(){
     if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || r.status);
     CATS = (await r.json()).categories || [];
     try { const cr = await fetch('/categories', { headers:authHeaders }); if(cr.ok) CatPicker.init({ headers:authHeaders, categories:(await cr.json()).categories || [] }); } catch(_){}
-  } catch(e){ document.getElementById('sub').textContent = 'Failed to load: '+e.message; return; }
+  } catch(e){ AppHeader.setInfo('Failed to load: '+e.message); return; }
 
   const total = CATS.reduce((n,c)=>n+c.items.length,0);
-  document.getElementById('sub').textContent = `${total} models · ${CATS.length} categories`;
+  const mergedCount = CATS.reduce((n,c)=>n+c.items.filter(i=>i.merged).length,0);
+  AppHeader.setInfo(`${total} models · ${CATS.length} categories${mergedCount?` · ${mergedCount} merged`:''}`);
   document.getElementById('empty').style.display = total ? 'none' : 'block';
   render('');
 }
 
 function cardEl(it, category){
+  const merged = !!it.merged;
   const card = document.createElement('div');
   card.className = 'card' + (it.flagged ? ' flagged' : '');
   const chips = (it.tags||[]).map(t =>
     `<span class="chip${t.includes('|')||t.startsWith('{')?' variant':''}">${esc(t)}</span>`).join('');
-  const left = it.imageThumb
-    ? `<img class="thumb" src="${esc(it.imageThumb)}" data-full="${esc(it.imageFull||'')}" data-version="${esc(it.versionId||'')}" data-model="${esc(it.modelId||'')}">`
-    : `<div class="ph">${esc(it.stem || 'LoRA')}</div>`;
-  const civLink = it.modelId ? `<a class="civ" href="https://civitai.com/models/${it.modelId}" target="_blank" rel="noopener">civitai ↗</a>` : '';
+  // A merged card's left tile is the first ACTIVE member; the member panel below
+  // flips through the rest. The library is READ-ONLY, so the active checkboxes are
+  // disabled here -- toggling lives on Curate, which owns the write surface.
+  const face = merged ? ((it.members||[]).find(m=>m.active) || (it.members||[])[0] || {}) : it;
+  const left = face.imageThumb
+    ? `<img class="thumb" src="${esc(face.imageThumb)}" data-full="${esc(face.imageFull||'')}" data-version="${esc(face.versionId||'')}" data-model="${esc(face.modelId||'')}">`
+    : `<div class="ph">${esc(face.stem || 'LoRA')}</div>`;
+  const civLink = (!merged && it.modelId) ? `<a class="civ" href="https://civitai.com/models/${it.modelId}" target="_blank" rel="noopener">civitai ↗</a>` : '';
   card.innerHTML = `
     ${left}
     <div class="body">
       <div class="head">
         <span class="name">${esc(it.name || '(unnamed)')}</span>
+        ${merged ? MergeCard.badgeHtml(it) : ''}
         ${it.flagged ? '<span class="flag">NEEDS_REPLACEMENT</span>' : ''}
         ${civLink}
-        <button class="altbtn">🔍 alternates</button>
+        ${merged ? '' : '<button class="altbtn">🔍 alternates</button>'}
         <span class="recat"></span>
       </div>
-      <div class="lora">&lt;lora:${esc(it.stem||'?')}:${esc(it.weight||'1')}&gt;</div>
-      <div class="chips">${chips || '<span class="chip" style="opacity:.6">no tags</span>'}</div>
+      ${merged
+        ? `<div class="mergehost"></div>`
+        : `<div class="lora">&lt;lora:${esc(it.stem||'?')}:${esc(it.weight||'1')}&gt;</div>
+           <div class="chips">${chips || '<span class="chip" style="opacity:.6">no tags</span>'}</div>`}
       <button class="rawtoggle">▸ raw line</button>
       <div class="raw">${esc(it.rawLine)}</div>
     </div>`;
+  if(merged){
+    MergeCard.decorate(card, it);
+    card.querySelector('.mergehost').appendChild(MergeCard.panel(it, { readOnly:true }));
+  }
   card.querySelector('.rawtoggle').addEventListener('click', ()=> card.classList.toggle('show-raw'));
-  card.querySelector('.altbtn').addEventListener('click', ()=> Alternates.open({name: it.name, baseModel: it.civitaiBaseModel}));
+  const alt = card.querySelector('.altbtn');
+  if(alt) alt.addEventListener('click', ()=> Alternates.open({name: it.name, baseModel: it.civitaiBaseModel}));
   const recatHost = card.querySelector('.recat');
-  if(recatHost) CatPicker.recategorize(recatHost, { stem: it.stem, category, onDone: ()=> load() });
+  if(recatHost) CatPicker.recategorize(recatHost, { stem: it.stem, lineText: merged?it.rawLine:null, category, onDone: ()=> load() });
   const thumb = card.querySelector('img.thumb');
   if(thumb) HoverPreview.bind(thumb);
-  // stash searchable text
-  card._hay = (category + ' ' + (it.name||'') + ' ' + (it.stem||'') + ' ' + (it.tags||[]).join(' ')).toLowerCase();
+  // stash searchable text (members included, so a merged card is findable by any
+  // of the loras inside it)
+  const memberHay = merged ? (it.members||[]).map(m=>`${m.name||''} ${m.stem||''} ${(m.tags||[]).join(' ')}`).join(' ') : '';
+  card._hay = (category + ' ' + (it.name||'') + ' ' + (it.stem||'') + ' ' + (it.tags||[]).join(' ') + ' ' + memberHay).toLowerCase();
   return card;
 }
 

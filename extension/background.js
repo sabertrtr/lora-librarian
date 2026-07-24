@@ -10,11 +10,37 @@ if (typeof importScripts === "function") importScripts("config.js");
 // contextMenus and no onShown -- we detect and fall back below.
 const menus = browser.menus || browser.contextMenus;
 
+// Two identical menu trees, one per context:
+//   "link" -- right-click a Civitai LINK anywhere on the web (the original flow).
+//   "page" -- right-click the PAGE ITSELF while on a Civitai model page, so you can
+//             stage the model you are already looking at without hunting for a link
+//             to its own page. Restricted with documentUrlPatterns so the item only
+//             appears on Civitai model pages, not on every site you right-click.
+// Same children, same handlers; only the id suffix and the URL source differ.
+const CTX = [
+  { sfx: "", contexts: ["link"], patterns: null },
+  {
+    sfx: "-page",
+    contexts: ["page"],
+    patterns: [
+      "*://civitai.com/models/*", "*://*.civitai.com/models/*",
+      "*://civitai.red/models/*", "*://*.civitai.red/models/*"
+    ]
+  }
+];
+
 const MENU_ROOT = "ll-root";
 const MENU_ADD = "ll-add";
 const MENU_REPLACE = "ll-replace";
 const MENU_REPLACE_PREFIX = "ll-replace:";
 const MENU_REPLACE_EMPTY = "ll-replace-empty";
+
+// A menu click gives us a link URL (link context) or the page's own URL (page
+// context). Everything downstream only needs "a civitai model/version URL".
+function urlFromInfo(info) {
+  const u = info.linkUrl || info.pageUrl || "";
+  return /civitai\.[a-z]+\/models\/\d+/i.test(u) ? u : null;
+}
 
 // menuId -> flagged entry. Persisted to storage.session because a Chrome MV3
 // service worker is torn down between events and would otherwise lose it before
@@ -33,9 +59,6 @@ async function loadFlagged() {
 // then recreate the skeleton + the live "replace flagged" children.
 async function refreshMenus() {
   try { await menus.removeAll(); } catch (e) { /* ignore */ }
-  menus.create({ id: MENU_ROOT, title: "LoRA Librarian", contexts: ["link"] });
-  menus.create({ id: MENU_ADD, parentId: MENU_ROOT, title: "Add new LoRA", contexts: ["link"] });
-  menus.create({ id: MENU_REPLACE, parentId: MENU_ROOT, title: "Replace a flagged entry", contexts: ["link"] });
 
   let flagged = [];
   try {
@@ -44,14 +67,24 @@ async function refreshMenus() {
   } catch (e) { console.error("lora-librarian: /flagged fetch failed:", e); }
 
   flaggedByMenuId = {};
-  if (!flagged.length) {
-    menus.create({ id: MENU_REPLACE_EMPTY, parentId: MENU_REPLACE, title: "No flagged entries", enabled: false, contexts: ["link"] });
-  } else {
-    flagged.forEach((f, i) => {
-      const id = `${MENU_REPLACE_PREFIX}${i}`;
-      flaggedByMenuId[id] = f;
-      menus.create({ id, parentId: MENU_REPLACE, title: `${deriveNameFromRaw(f.rawLine)}${f.category ? "  ·  " + f.category : ""}`, contexts: ["link"] });
-    });
+  for (const c of CTX) {
+    const base = { contexts: c.contexts };
+    if (c.patterns) base.documentUrlPatterns = c.patterns;
+    menus.create({ ...base, id: MENU_ROOT + c.sfx, title: "LoRA Librarian" });
+    menus.create({ ...base, id: MENU_ADD + c.sfx, parentId: MENU_ROOT + c.sfx,
+                   title: c.sfx ? "Stage this page's LoRA" : "Add new LoRA" });
+    menus.create({ ...base, id: MENU_REPLACE + c.sfx, parentId: MENU_ROOT + c.sfx, title: "Replace a flagged entry" });
+
+    if (!flagged.length) {
+      menus.create({ ...base, id: MENU_REPLACE_EMPTY + c.sfx, parentId: MENU_REPLACE + c.sfx, title: "No flagged entries", enabled: false });
+    } else {
+      flagged.forEach((f, i) => {
+        const id = `${MENU_REPLACE_PREFIX}${i}${c.sfx}`;
+        flaggedByMenuId[id] = f;
+        menus.create({ ...base, id, parentId: MENU_REPLACE + c.sfx,
+                       title: `${deriveNameFromRaw(f.rawLine)}${f.category ? "  ·  " + f.category : ""}` });
+      });
+    }
   }
   await saveFlagged();
   if (menus.refresh) menus.refresh();   // Firefox: repaint an already-open menu
@@ -64,17 +97,26 @@ browser.runtime.onStartup.addListener(refreshMenus);
 // Firefox: refresh right before the menu shows (always current). Chrome lacks
 // onShown, so instead poll on an alarm to keep the flagged list reasonably fresh.
 if (menus.onShown) {
-  menus.onShown.addListener((info) => { if (info.contexts.includes("link")) refreshMenus(); });
+  menus.onShown.addListener((info) => {
+    if (info.contexts.includes("link") || info.contexts.includes("page")) refreshMenus();
+  });
 } else if (browser.alarms) {
   browser.alarms.create("ll-refresh-flagged", { periodInMinutes: 3 });
   browser.alarms.onAlarm.addListener((a) => { if (a.name === "ll-refresh-flagged") refreshMenus(); });
 }
 
 menus.onClicked.addListener(async (info) => {
-  const linkUrl = info.linkUrl;
-  if (!linkUrl) return;
+  const linkUrl = urlFromInfo(info);
   const id = String(info.menuItemId);
-  if (id === MENU_ADD) { await stageLink(linkUrl, null); return; }
+  if (!linkUrl) {
+    // Only reachable from the page context on a URL that isn't a model page --
+    // say so instead of silently doing nothing.
+    if (id.startsWith(MENU_ADD) || id.startsWith(MENU_REPLACE_PREFIX)) {
+      notify("Nothing to stage", "This page isn't a Civitai model page.");
+    }
+    return;
+  }
+  if (id === MENU_ADD || id === MENU_ADD + "-page") { await stageLink(linkUrl, null); return; }
   if (id.startsWith(MENU_REPLACE_PREFIX)) {
     if (!flaggedByMenuId[id]) await loadFlagged();     // SW may have restarted
     const entry = flaggedByMenuId[id];

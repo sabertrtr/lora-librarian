@@ -25,9 +25,22 @@ cards are striped (one stripe per LoRA), you can flip through the members and ma
 any of them inactive, and **Split apart** puts them back. Every edit comments the
 old line out rather than deleting it, so nothing is ever lost.
 
+### Prompt builder
+A node-graph canvas (**Prompt Builder** tab) that composes a Stable Diffusion
+prompt from your catalogued LoRAs. Each node is a prompt category (quality,
+character, pose, style, …) holding a text box and any number of LoRAs, each with a
+per-LoRA **% proc chance** (edit one and the rest rebalance to sum 100). Nodes emit
+from their top/right/bottom edges and only receive on the left, so dragging a
+node's right edge onto another's left **snaps** them into a chain — and the chain
+order is the order of the generated prompt. "Generate" produces either one concrete
+roll or a single Dynamic Prompts `{60::a|40::b}` weighted string. The layout
+persists and can be exported/imported (imports are reconciled field-by-field —
+missing fields are defaulted, unknown fields are set aside for review, nothing
+silently breaks).
+
 Two parts:
 - **the service** — a Node/Express server that does the work and serves the web UI
-  (collection, library, curate, staging gallery, categories, folder scan);
+  (collection, library, curate, staging gallery, prompt builder, categories, folder scan);
 - **the browser extension** (Firefox + Chrome) — the right-click "capture" surface.
 
 ## Run it
@@ -62,11 +75,13 @@ anywhere on a Civitai model page to stage the model you're already looking at.
 
 ## Tests
 ```
-node scripts/test-merge.js
+node scripts/test-merge.js          # wildcard-file editing primitives
+node scripts/test-promptbuilder.js  # prompt-builder core logic
 ```
-Exercises the wildcard-file editing primitives (merge/split/park, move, remove,
-the replaced-file marker) against a throwaway copy in a temp dir, and asserts your
-real `data/library.yaml` is byte-identical afterwards.
+The merge suite exercises the wildcard-file editing primitives (merge/split/park,
+move, remove, the replaced-file marker) against a throwaway copy in a temp dir, and
+asserts your real `data/library.yaml` is byte-identical afterwards. The prompt-builder
+suite covers the pure graph/composition/reconcile logic headlessly.
 
 Personal data (`data/library.yaml`, `.env`, caches, downloads, certs) is
 gitignored; `data/library.example.yaml` is the empty seed.

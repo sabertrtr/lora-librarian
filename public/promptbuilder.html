@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LoRA Librarian -- Prompt Builder</title>
+<style>
+  :root { --bg:#14161a; --card:#1c1f26; --line:#2c313c; --muted:#8b93a0; --accent:#9ec5ff; --radius:12px; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { font-family:system-ui,sans-serif; margin:0; background:var(--bg); color:#e8eaed; overflow:hidden; display:flex; flex-direction:column; }
+  a { color:var(--accent); }
+  button { cursor:pointer; border-radius:7px; border:1px solid #4b5563; padding:.3rem .7rem; font-size:.8rem; background:#20242d; color:#e8eaed; font:inherit; }
+  button:hover { border-color:var(--accent); }
+  button[disabled] { opacity:.4; cursor:default; }
+
+  .pbtools { display:flex; align-items:center; gap:.5rem; padding:.5rem 1rem; border-bottom:1px solid var(--line); background:#11131a; flex-wrap:wrap; flex:0 0 auto; }
+  .pbtools .sp { flex:1; }
+  .pbaddbtn { background:#1f8b4c; border-color:#1f8b4c; color:#eafff2; font-weight:700; }
+  .pbaddbtn:hover { background:#25a259; }
+  #saveStat { font-size:.76rem; color:var(--muted); min-width:6rem; text-align:right; }
+
+  /* canvas */
+  #wrap { flex:1 1 auto; overflow:auto; position:relative; }
+  #canvas { position:relative; width:5000px; height:3000px;
+    background-image:radial-gradient(circle, #232833 1px, transparent 1px); background-size:26px 26px; }
+  #links { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; z-index:1; }
+  #links path.link { fill:none; stroke:#4d7ab8; stroke-width:2.5; }
+  #links path.hit { fill:none; stroke:transparent; stroke-width:16; pointer-events:stroke; cursor:pointer; }
+  #links path.hit:hover + path.link, #links path.hit:hover { stroke:#ff8080; }
+
+  .pbnode { position:absolute; width:248px; background:var(--card); border:1px solid var(--line);
+    border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.4); z-index:2; }
+  .pbnode.snapping { border-color:#2dd47a; box-shadow:0 0 0 2px rgba(45,212,122,.5); }
+  .pbnode.dragging { z-index:5; box-shadow:0 14px 40px rgba(0,0,0,.6); }
+  .pbhead { display:flex; align-items:center; gap:.4rem; padding:.35rem .5rem; border-bottom:1px solid var(--line);
+    cursor:grab; background:#191c24; border-radius:10px 10px 0 0; }
+  .pbhead:active { cursor:grabbing; }
+  .pborder { font-size:.62rem; font-weight:800; color:#0b0d11; background:var(--accent); border-radius:4px; padding:.02rem .34rem; flex:0 0 auto; min-width:1.2rem; text-align:center; }
+  .pblabel { font-weight:700; color:#fff; font-size:.86rem; flex:1; outline:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pblabel:focus { background:#0f1116; border-radius:4px; padding:0 .2rem; }
+  .pbdel { position:relative; overflow:hidden; border-color:#7a2e3a; color:#f0a8b2; background:#241014; padding:.05rem .5rem; font-size:1rem; line-height:1; }
+  .pbdel .fill { position:absolute; left:0; bottom:0; height:100%; width:0; background:rgba(220,60,80,.45); z-index:0; }
+  .pbdel span { position:relative; z-index:1; }
+  .pbbody { padding:.45rem .5rem .55rem; }
+  .pbtext { width:100%; min-height:2.6rem; resize:vertical; background:#0f1116; border:1px solid var(--line);
+    border-radius:7px; color:#e8eaed; font:inherit; font-size:.78rem; padding:.35rem .45rem; }
+  .pbtext::placeholder { color:#5b6472; }
+
+  .pbloras { margin-top:.4rem; display:flex; flex-direction:column; gap:.3rem; }
+  .lrow { display:flex; align-items:center; gap:.35rem; background:#0f1116; border:1px solid var(--line); border-radius:7px; padding:.25rem; }
+  .lrow.off { opacity:.55; }
+  .lrow .th { width:26px; height:34px; object-fit:cover; border-radius:4px; border:1px solid var(--line); background:#0c0d10; flex:0 0 auto; }
+  .lrow .thph { width:26px; height:34px; border-radius:4px; background:linear-gradient(135deg,#232838,#161a22); flex:0 0 auto; }
+  .lrow .lmeta { min-width:0; flex:1 1 auto; }
+  .lrow .lnm { font-size:.72rem; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .lrow .lpw { width:100%; margin-top:.15rem; background:#161a22; border:1px solid var(--line); border-radius:5px; color:#cbd3df; font:inherit; font-size:.68rem; padding:.12rem .3rem; }
+  .lrow .lw { width:2.7rem; }
+  .lrow .lc { width:3.1rem; }
+  .lrow input.num { background:#161a22; border:1px solid var(--line); border-radius:5px; color:#e8eaed; font:inherit; font-size:.68rem; padding:.12rem .2rem; text-align:right; }
+  .lrow .lx { border-color:#7a2e3a; color:#f0a8b2; background:transparent; padding:.05rem .35rem; font-size:.72rem; }
+  .lrow .pct { font-size:.6rem; color:var(--muted); }
+  .pbaddlora { margin-top:.4rem; width:100%; font-size:.72rem; border-style:dashed; color:var(--accent); }
+  .pbwarn { font-size:.64rem; color:#ffcf7a; margin-top:.25rem; }
+
+  /* ports */
+  .port { position:absolute; width:12px; height:12px; border-radius:50%; background:#2c313c; border:2px solid #566; z-index:3; }
+  .port.in { left:-7px; top:22px; background:#3b6ea5; border-color:#9ec5ff; }
+  .port.out { background:#1f8b4c; border-color:#2dd47a; }
+  .port.right { right:-7px; top:22px; }
+  .port.top { top:-7px; left:50%; margin-left:-6px; }
+  .port.bottom { bottom:-7px; left:50%; margin-left:-6px; }
+
+  /* generate panel */
+  #gen { flex:0 0 auto; border-top:1px solid var(--line); background:#11131a; padding:.5rem 1rem .7rem; max-height:34vh; overflow:auto; }
+  #gen .grow { display:flex; align-items:center; gap:.6rem; margin-bottom:.4rem; flex-wrap:wrap; }
+  #gen h3 { margin:0; font-size:.85rem; }
+  #gen .sub { color:var(--muted); font-size:.74rem; }
+  .genout { width:100%; background:#0c0d10; border:1px solid var(--line); border-radius:8px; color:#dfe6ef;
+    font-family:ui-monospace,monospace; font-size:.76rem; padding:.5rem .6rem; white-space:pre-wrap; word-break:break-word; min-height:2.4rem; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg button { border:none; border-radius:0; background:#171a22; }
+  .seg button.on { background:#2a3550; color:#fff; }
+
+  /* modals */
+  .modal { position:fixed; inset:0; z-index:9000; background:rgba(0,0,0,.62); display:none; align-items:flex-start; justify-content:center; padding:5vh 3vw; }
+  .modal.on { display:flex; }
+  .mbox { background:var(--card); border:1px solid var(--line); border-radius:12px; width:min(760px,96vw); max-height:88vh; display:flex; flex-direction:column; overflow:hidden; }
+  .mhead { display:flex; align-items:center; gap:.6rem; padding:.7rem .9rem; border-bottom:1px solid var(--line); }
+  .mhead b { color:#fff; }
+  .mhead .x { margin-left:auto; background:none; border:none; color:var(--muted); font-size:1.15rem; }
+  .mbody { overflow:auto; padding:.7rem .9rem; }
+  #lkSearch { width:100%; background:#0f1116; border:1px solid var(--line); border-radius:8px; color:#fff; padding:.45rem .6rem; font-size:.9rem; margin-bottom:.6rem; }
+  .lkgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.5rem; }
+  .lkc { display:flex; gap:.45rem; background:#0f1116; border:1px solid var(--line); border-radius:8px; padding:.4rem; cursor:pointer; align-items:flex-start; }
+  .lkc:hover { border-color:var(--accent); }
+  .lkc .th { width:40px; height:52px; object-fit:cover; border-radius:5px; border:1px solid var(--line); background:#0c0d10; flex:0 0 auto; }
+  .lkc .thph { width:40px; height:52px; border-radius:5px; background:linear-gradient(135deg,#232838,#161a22); flex:0 0 auto; }
+  .lkc .nm { font-size:.74rem; color:#fff; }
+  .lkc .cat { font-size:.62rem; color:var(--muted); }
+  .rep-sec { margin:.2rem 0 .8rem; }
+  .rep-sec h4 { margin:.2rem 0 .3rem; font-size:.82rem; }
+  .rep-sec.ok h4 { color:#8ff0bf; } .rep-sec.warn h4 { color:#ffcf7a; } .rep-sec.info h4 { color:#9ec5ff; }
+  .rep-list { font-size:.74rem; color:#cbd3df; font-family:ui-monospace,monospace; background:#0c0d10; border:1px solid var(--line); border-radius:8px; padding:.4rem .5rem; max-height:22vh; overflow:auto; }
+  .rep-row { display:flex; gap:.5rem; align-items:center; padding:.12rem 0; }
+  .rep-row select { background:#161a22; border:1px solid var(--line); color:#fff; border-radius:5px; font:inherit; font-size:.72rem; }
+  .mfoot { display:flex; gap:.6rem; justify-content:flex-end; padding:.6rem .9rem; border-top:1px solid var(--line); }
+  .prim { background:#3b82f6; border-color:#3b82f6; color:#04122b; font-weight:700; }
+  .hint { color:var(--muted); font-size:.72rem; }
+</style>
+</head>
+<body>
+  <div class="pbtools">
+    <button class="pbaddbtn" id="addNode">+ Add node</button>
+    <button id="undo" title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button id="redo" title="Redo (Ctrl+Y)">↷ Redo</button>
+    <span class="hint">drag a node's right edge onto another's left to snap · click a link to cut it · hold – 3s to delete a node</span>
+    <span class="sp"></span>
+    <button id="exportBtn">⭳ Export</button>
+    <button id="importBtn">⭱ Import</button>
+    <button id="resetBtn" title="Restore the default 15-category layout">⟲ Reset</button>
+    <span id="saveStat">—</span>
+  </div>
+
+  <div id="wrap">
+    <div id="canvas">
+      <svg id="links"></svg>
+    </div>
+  </div>
+
+  <div id="gen">
+    <div class="grow">
+      <h3>Generated prompt</h3>
+      <div class="seg">
+        <button id="modeRoll" class="on">Concrete roll</button>
+        <button id="modeWeighted">Dynamic Prompts (weighted)</button>
+      </div>
+      <button id="reroll">🎲 Re-roll</button>
+      <button id="copyBtn">⧉ Copy</button>
+      <span class="sub" id="genSub"></span>
+      <span class="sp" style="flex:1"></span>
+    </div>
+    <div class="genout" id="genout"></div>
+  </div>
+
+  <!-- lora picker -->
+  <div class="modal" id="lkModal">
+    <div class="mbox">
+      <div class="mhead"><b>Add a LoRA to <span id="lkNode">node</span></b><button class="x" id="lkClose">✕</button></div>
+      <div class="mbody">
+        <input id="lkSearch" placeholder="filter loras by name, tag, category…" autocomplete="off">
+        <div class="lkgrid" id="lkGrid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- import report -->
+  <div class="modal" id="repModal">
+    <div class="mbox">
+      <div class="mhead"><b>Import review</b><button class="x" id="repClose">✕</button></div>
+      <div class="mbody" id="repBody"></div>
+      <div class="mfoot">
+        <button id="repCancel">Cancel</button>
+        <button class="prim" id="repApply">Apply import</button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept="application/json,.json" style="display:none">
+
+<script src="/appheader.js"></script>
+<script src="/hoverpreview.js"></script>
+<script src="/promptbuilder-core.js"></script>
+<script>
+const K = new URLSearchParams(location.search).get('k');
+const authHeaders = K ? { 'x-service-token': K } : {};
+const jsonHeaders = { 'Content-Type':'application/json', ...authHeaders };
+AppHeader.mount({ active:'builder', token:K, info:'Loading…' });
+try { HoverPreview.init({ headers: authHeaders }); } catch(_){}
+const Core = window.PromptCore;
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+const $ = id => document.getElementById(id);
+const SNAP = 52;   // px proximity for magnetic input<-output attachment
+
+let graph = { version: Core.CURRENT_VERSION, nodes: [], edges: [] };
+let library = [];              // flat pickable loras
+let undoStack = [], redoStack = [];
+let genMode = 'roll';          // 'roll' | 'weighted'
+let lastRoll = '';             // frozen concrete roll (so re-render doesn't reroll)
+
+// ---------- persistence ----------
+const canvas = $('canvas'), svg = $('links');
+let saveTimer = null;
+function autosave(){
+  clearTimeout(saveTimer);
+  $('saveStat').textContent = 'saving…';
+  saveTimer = setTimeout(async ()=>{
+    try {
+      const r = await fetch('/prompt-graph', { method:'PUT', headers:jsonHeaders, body: JSON.stringify({ graph }) });
+      if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || r.status);
+      const d = await r.json();
+      graph = d.graph;                          // adopt the server-reconciled copy
+      $('saveStat').textContent = 'saved ✓';
+    } catch(e){ $('saveStat').textContent = 'save failed: '+e.message; }
+  }, 550);
+}
+
+// ---------- undo/redo ----------
+const clone = g => JSON.parse(JSON.stringify(g));
+function snapshot(){ undoStack.push(clone(graph)); if(undoStack.length>60) undoStack.shift(); redoStack.length=0; refreshUndoButtons(); }
+function commit(mutator){ snapshot(); mutator(); render(); autosave(); }
+function refreshUndoButtons(){ $('undo').disabled = !undoStack.length; $('redo').disabled = !redoStack.length; }
+function undo(){ if(!undoStack.length) return; redoStack.push(clone(graph)); graph = undoStack.pop(); render(); autosave(); refreshUndoButtons(); }
+function redo(){ if(!redoStack.length) return; undoStack.push(clone(graph)); graph = redoStack.pop(); render(); autosave(); refreshUndoButtons(); }
+$('undo').addEventListener('click', undo);
+$('redo').addEventListener('click', redo);
+document.addEventListener('keydown', e=>{
+  if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z' && !e.shiftKey){ e.preventDefault(); undo(); }
+  else if((e.ctrlKey||e.metaKey) && (e.key.toLowerCase()==='y' || (e.key.toLowerCase()==='z' && e.shiftKey))){ e.preventDefault(); redo(); }
+});
+
+// ---------- node lookups / geometry ----------
+const nodeById = id => graph.nodes.find(n=>n.id===id);
+const elById = id => canvas.querySelector(`.pbnode[data-id="${id}"]`);
+function ports(node){
+  const el = elById(node.id);
+  const w = el ? el.offsetWidth : 248, h = el ? el.offsetHeight : 120;
+  return {
+    in:     { x:node.x,       y:node.y + 22 + 6, edge:'left' },
+    right:  { x:node.x + w,   y:node.y + 22 + 6, edge:'right' },
+    top:    { x:node.x + w/2, y:node.y,          edge:'top' },
+    bottom: { x:node.x + w/2, y:node.y + h,      edge:'bottom' }
+  };
+}
+// descendants of a node (to prevent snapping into a cycle)
+function descendants(id){
+  const out = new Set(); const adj = new Map(graph.nodes.map(n=>[n.id,[]]));
+  for(const e of graph.edges) if(adj.has(e.from)) adj.get(e.from).push(e.to);
+  const stack=[id];
+  while(stack.length){ const cur=stack.pop(); for(const t of (adj.get(cur)||[])){ if(!out.has(t)){ out.add(t); stack.push(t); } } }
+  return out;
+}
+
+// ---------- rendering ----------
+function render(){
+  // remove node els (keep the svg)
+  canvas.querySelectorAll('.pbnode').forEach(n=>n.remove());
+  const order = Core.deriveOrder(graph.nodes, graph.edges);
+  const rank = new Map(order.map((id,i)=>[id,i+1]));
+  for(const node of graph.nodes) canvas.appendChild(nodeEl(node, rank.get(node.id)));
+  drawLinks();
+  renderGen();
+  AppHeader.setInfo(`${graph.nodes.length} nodes · ${graph.edges.length} links`);
+}
+
+function drawLinks(){
+  // rebuild svg contents
+  while(svg.firstChild) svg.removeChild(svg.firstChild);
+  const svgns='http://www.w3.org/2000/svg';
+  for(const e of graph.edges){
+    const from = nodeById(e.from), to = nodeById(e.to);
+    if(!from || !to) continue;
+    const p = ports(from)[e.fromEdge] || ports(from).right;
+    const q = ports(to).in;
+    const d = edgePath(p, q);
+    const hit = document.createElementNS(svgns,'path'); hit.setAttribute('d',d); hit.setAttribute('class','hit');
+    hit.addEventListener('click', ()=> commit(()=>{ graph.edges = graph.edges.filter(x=>x!==e); }));
+    hit.style.pointerEvents='stroke';
+    const path = document.createElementNS(svgns,'path'); path.setAttribute('d',d); path.setAttribute('class','link');
+    svg.appendChild(hit); svg.appendChild(path);
+  }
+}
+function edgePath(p,q){
+  const dx = Math.max(45, Math.abs(q.x-p.x)/2);
+  let c1x=p.x, c1y=p.y;
+  if(p.edge==='right') c1x=p.x+dx; else if(p.edge==='top') c1y=p.y-dx; else if(p.edge==='bottom') c1y=p.y+dx; else c1x=p.x+dx;
+  const c2x=q.x-dx, c2y=q.y;
+  return `M ${p.x} ${p.y} C ${c1x} ${c1y} ${c2x} ${c2y} ${q.x} ${q.y}`;
+}
+
+function nodeEl(node, order){
+  const el = document.createElement('div');
+  el.className='pbnode'; el.dataset.id=node.id; el.style.left=node.x+'px'; el.style.top=node.y+'px';
+  const warn = lorasWarn(node);
+  el.innerHTML = `
+    <div class="pbhead">
+      <span class="pborder">${order||'·'}</span>
+      <span class="pblabel" contenteditable="true" spellcheck="false">${esc(node.label)}</span>
+      <button class="pbdel" title="hold 3s to delete"><span>–</span><span class="fill"></span></button>
+    </div>
+    <div class="pbbody">
+      <textarea class="pbtext" placeholder="prompt text…" spellcheck="false">${esc(node.promptText)}</textarea>
+      <div class="pbloras"></div>
+      <button class="pbaddlora">＋ add lora</button>
+      ${warn?`<div class="pbwarn">${esc(warn)}</div>`:''}
+    </div>
+    <div class="port in" title="input (left only)"></div>
+    <div class="port out right" title="output"></div>
+    <div class="port out top" title="output"></div>
+    <div class="port out bottom" title="output"></div>`;
+  renderLoras(el, node);
+
+  // label edit
+  const lab = el.querySelector('.pblabel');
+  lab.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); lab.blur(); } });
+  lab.addEventListener('blur', ()=>{ const v=lab.textContent.trim()||'node'; if(v!==node.label){ node.label=v; autosave(); } });
+  // prompt text
+  const ta = el.querySelector('.pbtext');
+  ta.addEventListener('input', ()=>{ node.promptText=ta.value; autosave(); scheduleGen(); });
+  // add lora
+  el.querySelector('.pbaddlora').addEventListener('click', e=>{ e.stopPropagation(); openPicker(node.id); });
+  // delete (hold 3s)
+  wireHoldDelete(el.querySelector('.pbdel'), node.id);
+  // drag from header (ignore interactive children)
+  el.querySelector('.pbhead').addEventListener('mousedown', e=>{
+    if(e.target.closest('button,.pblabel')) return;
+    startDrag(node, el, e);
+  });
+  return el;
+}
+
+function lorasWarn(node){
+  if(!node.loras || !node.loras.length) return '';
+  const sum = node.loras.reduce((a,l)=>a+(Number(l.chance)||0),0);
+  return sum===100 ? '' : `chances sum to ${sum}% (auto-normalised on next edit)`;
+}
+
+function renderLoras(el, node){
+  const host = el.querySelector('.pbloras');
+  host.innerHTML='';
+  (node.loras||[]).forEach((l, i)=>{
+    const row = document.createElement('div'); row.className='lrow';
+    const th = l.imageThumb
+      ? `<img class="th" src="${esc(l.imageThumb)}" data-full="${esc(l.imageFull||'')}" data-version="${esc(l.versionId||'')}" data-model="${esc(l.modelId||'')}">`
+      : `<div class="thph"></div>`;
+    row.innerHTML = `
+      ${th}
+      <div class="lmeta">
+        <div class="lnm" title="${esc(l.name)}">${esc(l.name||l.stem)}</div>
+        <input class="lpw" placeholder="prompt words (triggers)…" value="${esc(l.promptWords||'')}">
+      </div>
+      <label class="pct" title="lora weight">w<input class="num lw" type="number" step="0.05" value="${esc(l.weight==null?1:l.weight)}"></label>
+      <label class="pct" title="% chance to proc">%<input class="num lc" type="number" min="0" max="100" step="1" value="${esc(Math.round(Number(l.chance)||0))}"></label>
+      <button class="lx" title="remove">✕</button>`;
+    const img = row.querySelector('img.th'); if(img && (img.dataset.full||img.dataset.version||img.dataset.model)) { try{ HoverPreview.bind(img); }catch(_){} }
+    row.querySelector('.lpw').addEventListener('input', e=>{ l.promptWords=e.target.value; autosave(); scheduleGen(); });
+    row.querySelector('.lw').addEventListener('input', e=>{ const v=parseFloat(e.target.value); l.weight=isNaN(v)?1:v; autosave(); scheduleGen(); });
+    const cinp = row.querySelector('.lc');
+    cinp.addEventListener('change', ()=>{
+      const chances = node.loras.map(x=>Number(x.chance)||0);
+      const next = Core.rebalanceChances(chances, i, parseFloat(cinp.value));
+      node.loras.forEach((x,j)=> x.chance = next[j]);
+      renderLoras(el, node);                    // reflect the proportional adjustment
+      const w=el.querySelector('.pbwarn'); if(w) w.textContent=lorasWarn(node);
+      autosave(); scheduleGen();
+    });
+    row.querySelector('.lx').addEventListener('click', e=>{
+      e.stopPropagation();
+      commit(()=>{
+        node.loras.splice(i,1);
+        const norm = Core.normalizeChances(node.loras.map(x=>Number(x.chance)||0));
+        node.loras.forEach((x,j)=> x.chance = norm[j]);
+      });
+    });
+    host.appendChild(row);
+  });
+}
+
+// ---------- generate panel ----------
+let genTimer=null;
+function scheduleGen(){ if(genMode==='weighted'){ renderGen(); return; } clearTimeout(genTimer); genTimer=setTimeout(()=>{ lastRoll=Core.composePrompt(graph, Math.random); renderGen(); }, 200); }
+function renderGen(){
+  if(genMode==='weighted'){
+    $('genout').textContent = Core.weightedForm(graph) || '(nothing to generate — add prompt text or loras)';
+    $('genSub').textContent = 'one string covering every weighted combination (paste into Forge with Dynamic Prompts on)';
+  } else {
+    if(!lastRoll) lastRoll = Core.composePrompt(graph, Math.random);
+    $('genout').textContent = lastRoll || '(nothing to generate — add prompt text or loras)';
+    $('genSub').textContent = 'one concrete roll (each node picks a lora by its % chance) — hit Re-roll for another';
+  }
+}
+$('reroll').addEventListener('click', ()=>{ lastRoll = Core.composePrompt(graph, Math.random); genMode='roll'; setMode(); renderGen(); });
+$('modeRoll').addEventListener('click', ()=>{ genMode='roll'; setMode(); renderGen(); });
+$('modeWeighted').addEventListener('click', ()=>{ genMode='weighted'; setMode(); renderGen(); });
+function setMode(){ $('modeRoll').classList.toggle('on', genMode==='roll'); $('modeWeighted').classList.toggle('on', genMode==='weighted'); }
+$('copyBtn').addEventListener('click', async ()=>{
+  try { await navigator.clipboard.writeText($('genout').textContent); $('copyBtn').textContent='✓ Copied'; setTimeout(()=>$('copyBtn').textContent='⧉ Copy',1200); }
+  catch(_){ const r=document.createRange(); r.selectNode($('genout')); getSelection().removeAllRanges(); getSelection().addRange(r); }
+});
+
+// ---------- add node ----------
+$('addNode').addEventListener('click', ()=>{
+  const sc = $('wrap');
+  const x = sc.scrollLeft + sc.clientWidth/2 - 124, y = sc.scrollTop + 100;
+  commit(()=>{ graph.nodes.push({ id: Core.genId('n'), label:'new', x:Math.round(x), y:Math.round(y), promptText:'', loras:[] }); });
+});
+
+// ---------- delete (hold 3s) ----------
+function wireHoldDelete(btn, nodeId){
+  let raf=null, t0=0, done=false;
+  const fill = btn.querySelector('.fill');
+  const stop = ()=>{ if(raf) cancelAnimationFrame(raf); raf=null; fill.style.width='0%'; };
+  const tick = ()=>{
+    const p = Math.min(1,(performance.now()-t0)/3000);
+    fill.style.width=(p*100)+'%';
+    if(p>=1){ done=true; stop(); commit(()=>{ graph.nodes=graph.nodes.filter(n=>n.id!==nodeId); graph.edges=graph.edges.filter(e=>e.from!==nodeId&&e.to!==nodeId); }); }
+    else raf=requestAnimationFrame(tick);
+  };
+  btn.addEventListener('mousedown', e=>{ e.stopPropagation(); done=false; t0=performance.now(); raf=requestAnimationFrame(tick); });
+  ['mouseup','mouseleave'].forEach(ev=> btn.addEventListener(ev, ()=>{ if(!done) stop(); }));
+  btn.addEventListener('click', e=>e.stopPropagation());
+}
+
+// ---------- drag + magnetic snap ----------
+function startDrag(node, el, e){
+  e.preventDefault();
+  let moved=false, snapped=false;
+  const startX=e.clientX, startY=e.clientY, ox=node.x, oy=node.y;
+  el.classList.add('dragging');
+  function move(ev){
+    const dx=ev.clientX-startX, dy=ev.clientY-startY;
+    if(!moved && Math.abs(dx)+Math.abs(dy)>3){ moved=true; snapshot(); }   // first real move -> undo point
+    node.x=Math.round(ox+dx); node.y=Math.round(oy+dy);
+    el.style.left=node.x+'px'; el.style.top=node.y+'px';
+    // live snap preview
+    const cand = findSnap(node);
+    el.classList.toggle('snapping', !!cand);
+    drawLinks();
+  }
+  function up(){
+    document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+    el.classList.remove('dragging','snapping');
+    if(moved){
+      const cand = findSnap(node);
+      // re-derive this node's single incoming edge purely from geometry
+      graph.edges = graph.edges.filter(e2=> e2.to!==node.id);
+      if(cand){
+        node.x += Math.round(cand.port.x - ports(node).in.x);
+        node.y += Math.round(cand.port.y - ports(node).in.y);
+        el.style.left=node.x+'px'; el.style.top=node.y+'px';
+        graph.edges.push({ from:cand.from, to:node.id, fromEdge:cand.port.edge });
+      }
+      render(); autosave();
+    }
+    // no move -> no snapshot was pushed, nothing to undo
+  }
+  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+}
+// nearest OUTPUT port (of another, non-descendant node) to THIS node's input, within SNAP
+function findSnap(node){
+  const inp = ports(node).in;
+  const banned = descendants(node.id); banned.add(node.id);
+  let best=null;
+  for(const other of graph.nodes){
+    if(banned.has(other.id)) continue;
+    const op = ports(other);
+    for(const edge of ['right','top','bottom']){
+      const p = op[edge];
+      const d = Math.hypot(p.x-inp.x, p.y-inp.y);
+      if(d<=SNAP && (!best || d<best.d)) best={ d, from:other.id, port:p };
+    }
+  }
+  return best;
+}
+
+// ---------- lora picker ----------
+let pickerNodeId=null;
+function openPicker(nodeId){ pickerNodeId=nodeId; const n=nodeById(nodeId); $('lkNode').textContent=n?n.label:'node'; $('lkSearch').value=''; renderPicker(''); $('lkModal').classList.add('on'); $('lkSearch').focus(); }
+function closePicker(){ $('lkModal').classList.remove('on'); }
+$('lkClose').addEventListener('click', closePicker);
+$('lkModal').addEventListener('click', e=>{ if(e.target===$('lkModal')) closePicker(); });
+$('lkSearch').addEventListener('input', e=> renderPicker(e.target.value));
+function renderPicker(filter){
+  const f=(filter||'').trim().toLowerCase();
+  const grid=$('lkGrid'); grid.innerHTML='';
+  const items = library.filter(l=> !f || (l.name+' '+l.stem+' '+(l.category||'')+' '+(l.tags||[]).join(' ')).toLowerCase().includes(f)).slice(0,300);
+  if(!items.length){ grid.innerHTML='<div class="hint">No matching loras (library.yaml must have catalogued entries).</div>'; return; }
+  for(const l of items){
+    const c=document.createElement('div'); c.className='lkc';
+    c.innerHTML = (l.imageThumb?`<img class="th" src="${esc(l.imageThumb)}">`:`<div class="thph"></div>`)+
+      `<div><div class="nm">${esc(l.name)}</div><div class="cat">${esc(l.category||'')}</div></div>`;
+    c.addEventListener('click', ()=>{ addLoraToNode(pickerNodeId, l); closePicker(); });
+    grid.appendChild(c);
+  }
+}
+function addLoraToNode(nodeId, l){
+  const node=nodeById(nodeId); if(!node) return;
+  commit(()=>{
+    node.loras = node.loras||[];
+    node.loras.push({ stem:l.stem, name:l.name, weight:l.weight==null?1:l.weight, chance:0, promptWords:'',
+      imageThumb:l.imageThumb||'', imageFull:l.imageFull||'', modelId:l.modelId||null, versionId:l.versionId||null });
+    // give the newcomer an even-ish share, pulling the others down proportionally
+    const idx=node.loras.length-1;
+    const share = Math.round(100/node.loras.length);
+    const next = Core.rebalanceChances(node.loras.map(x=>Number(x.chance)||0), idx, share);
+    node.loras.forEach((x,j)=> x.chance=next[j]);
+  });
+}
+
+// ---------- export / import ----------
+$('exportBtn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(graph, null, 2)], { type:'application/json' });
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='promptbuilder-export.json';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+});
+$('importBtn').addEventListener('click', ()=> $('fileInput').click());
+$('fileInput').addEventListener('change', e=>{
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=()=>{ let parsed=null; try{ parsed=JSON.parse(reader.result); }catch(err){ parsed=reader.result; }
+    const { graph:g, report } = Core.reconcile(parsed); showReport(g, report); };
+  reader.readAsText(file); e.target.value='';
+});
+let pendingImport=null;
+function showReport(g, report){
+  pendingImport = { g, report, migrate:{} };
+  const b=$('repBody'); b.innerHTML='';
+  const sec=(cls,title,inner)=>`<div class="rep-sec ${cls}"><h4>${title}</h4>${inner}</div>`;
+  const list = arr => `<div class="rep-list">${arr.length?arr.join('<br>'):'<span class="hint">none</span>'}</div>`;
+  // notes
+  if(report.notes.length) b.innerHTML += sec('info','Notes', list(report.notes.map(esc)));
+  // seeded (new/missing fields defaulted)
+  b.innerHTML += sec(report.seeded.length?'warn':'ok',
+    `Missing fields seeded with defaults (${report.seeded.length})`,
+    list(report.seeded.slice(0,200).map(esc)) + (report.seeded.length>200?'<div class="hint">… and more</div>':''));
+  // unmapped (unknown fields set aside)
+  b.innerHTML += sec(report.unmapped.length?'warn':'ok',
+    `Unexpected fields set aside for review (${report.unmapped.length})`,
+    list(report.unmapped.map(u=>`${esc(u.where)}.${esc(u.field)} = ${esc(JSON.stringify(u.value)).slice(0,80)}`)));
+  // deprecated (with migration target picker)
+  if(report.deprecated.length){
+    const fields = Object.keys(Core.NODE_FIELD_DEFAULTS);
+    const rows = report.deprecated.map((d,i)=>`<div class="rep-row">${esc(d.where)}.<b>${esc(d.field)}</b> →
+      <select data-i="${i}">
+        <option value="">(do nothing — leave as junk)</option>
+        ${fields.map(f=>`<option value="${esc(f)}"${d.suggest===f?' selected':''}>${esc(f)}</option>`).join('')}
+      </select></div>`).join('');
+    b.innerHTML += sec('warn', `Deprecated fields (${report.deprecated.length}) — choose where to send the data`, `<div class="rep-list">${rows}</div>`);
+  }
+  b.querySelectorAll('select[data-i]').forEach(s=> s.addEventListener('change', ()=>{ pendingImport.migrate[s.dataset.i]=s.value; }));
+  $('repModal').classList.add('on');
+}
+$('repClose').addEventListener('click', ()=> $('repModal').classList.remove('on'));
+$('repCancel').addEventListener('click', ()=> $('repModal').classList.remove('on'));
+$('repApply').addEventListener('click', ()=>{
+  const { g, report, migrate } = pendingImport;
+  // apply any chosen deprecated-field migrations onto the reconciled graph
+  report.deprecated.forEach((d,i)=>{
+    const dest = migrate[i]; if(!dest) return;                         // "do nothing"
+    const m = d.where.match(/^node\[(\d+)\]/); if(!m) return;
+    const node = g.nodes[+m[1]]; if(node) node[dest] = d.value;
+  });
+  snapshot(); graph = g; render(); autosave();
+  $('repModal').classList.remove('on');
+});
+
+// ---------- reset ----------
+$('resetBtn').addEventListener('click', ()=>{
+  if(!confirm('Restore the default 15-category layout? (Undoable.)')) return;
+  commit(()=>{ const d=Core.defaultGraph(); graph.nodes=d.nodes; graph.edges=d.edges; graph.version=d.version; });
+});
+
+// ---------- boot ----------
+async function boot(){
+  try {
+    const [gr, lr] = await Promise.all([
+      fetch('/prompt-graph', { headers:authHeaders }),
+      fetch('/prompt-loras', { headers:authHeaders })
+    ]);
+    if(gr.ok) graph = (await gr.json()).graph || graph;
+    if(lr.ok) library = (await lr.json()).loras || [];
+  } catch(e){ AppHeader.setInfo('Failed to load: '+e.message); }
+  if(!graph.nodes || !graph.nodes.length) graph = Core.defaultGraph();
+  lastRoll = Core.composePrompt(graph, Math.random);
+  render(); refreshUndoButtons(); setMode();
+  // center the view on the first node
+  const first = graph.nodes[0];
+  if(first){ $('wrap').scrollLeft = Math.max(0, first.x-60); $('wrap').scrollTop = Math.max(0, first.y-60); }
+}
+boot();
+</script>
+</body>
+</html>

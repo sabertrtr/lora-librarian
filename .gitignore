@@ -11,3 +11,5 @@ data/library.yaml
 data/*.bak
 CLAUDE.md
 DEVLOG.md
+data/promptbuilder.json
+data/promptbuilder.json.tmp

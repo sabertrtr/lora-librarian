@@ -46,6 +46,13 @@
     border-radius:7px; color:#e8eaed; font:inherit; font-size:.78rem; padding:.35rem .45rem; }
   .pbtext::placeholder { color:#5b6472; }
 
+  .pbmode { display:flex; align-items:center; gap:.4rem; margin-top:.45rem; }
+  .pbmode .mlab { font-size:.66rem; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .modeseg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .modeseg button { border:none; border-radius:0; background:#171a22; padding:.16rem .5rem; font-size:.68rem; }
+  .modeseg button.on { background:#2a3550; color:#fff; }
+  .modeseg button:hover { border:none; }
+  .pbmodehint { font-size:.62rem; color:var(--muted); margin-left:.1rem; }
   .pbloras { margin-top:.4rem; display:flex; flex-direction:column; gap:.3rem; }
   .lrow { display:flex; align-items:center; gap:.35rem; background:#0f1116; border:1px solid var(--line); border-radius:7px; padding:.25rem; }
   .lrow.off { opacity:.55; }
@@ -289,6 +296,14 @@ function nodeEl(node, order){
     </div>
     <div class="pbbody">
       <textarea class="pbtext" placeholder="prompt text…" spellcheck="false">${esc(node.promptText)}</textarea>
+      <div class="pbmode">
+        <span class="mlab">rolls</span>
+        <div class="modeseg">
+          <button data-m="exclusive" title="mutually exclusive — pick exactly one lora (chances sum to 100)">one of</button>
+          <button data-m="additive" title="additive — each lora rolls independently; any number can land">any of</button>
+        </div>
+        <span class="pbmodehint"></span>
+      </div>
       <div class="pbloras"></div>
       <button class="pbaddlora">＋ add lora</button>
       ${warn?`<div class="pbwarn">${esc(warn)}</div>`:''}
@@ -306,6 +321,21 @@ function nodeEl(node, order){
   // prompt text
   const ta = el.querySelector('.pbtext');
   ta.addEventListener('input', ()=>{ node.promptText=ta.value; autosave(); scheduleGen(); });
+  // mode toggle (exclusive pick-one vs additive independent)
+  syncMode(el, node);
+  el.querySelectorAll('.modeseg button').forEach(b=> b.addEventListener('click', e=>{
+    e.stopPropagation();
+    const m = b.dataset.m;
+    if(m === (node.mode||'exclusive')) return;
+    commit(()=>{
+      node.mode = m;
+      // switching to pick-one re-normalises the independent chances back to 100
+      if(m==='exclusive' && node.loras && node.loras.length){
+        const norm = Core.normalizeChances(node.loras.map(x=>Number(x.chance)||0));
+        node.loras.forEach((x,j)=> x.chance = norm[j]);
+      }
+    });
+  }));
   // add lora
   el.querySelector('.pbaddlora').addEventListener('click', e=>{ e.stopPropagation(); openPicker(node.id); });
   // delete (hold 3s)
@@ -318,10 +348,21 @@ function nodeEl(node, order){
   return el;
 }
 
+function nodeMode(node){ return (node.mode==='additive') ? 'additive' : 'exclusive'; }
+// The sum-to-100 warning only applies to exclusive (pick-one) nodes; additive
+// chances are independent and needn't add up to anything.
 function lorasWarn(node){
+  if(nodeMode(node)==='additive') return '';
   if(!node.loras || !node.loras.length) return '';
   const sum = node.loras.reduce((a,l)=>a+(Number(l.chance)||0),0);
   return sum===100 ? '' : `chances sum to ${sum}% (auto-normalised on next edit)`;
+}
+// Light up the active mode button + show a one-line explanation of what it does.
+function syncMode(el, node){
+  const m = nodeMode(node);
+  el.querySelectorAll('.modeseg button').forEach(b=> b.classList.toggle('on', b.dataset.m===m));
+  const hint = el.querySelector('.pbmodehint');
+  if(hint) hint.textContent = m==='additive' ? 'each rolls independently' : 'picks exactly one';
 }
 
 function renderLoras(el, node){
@@ -339,17 +380,23 @@ function renderLoras(el, node){
         <input class="lpw" placeholder="prompt words (triggers)…" value="${esc(l.promptWords||'')}">
       </div>
       <label class="pct" title="lora weight">w<input class="num lw" type="number" step="0.05" value="${esc(l.weight==null?1:l.weight)}"></label>
-      <label class="pct" title="% chance to proc">%<input class="num lc" type="number" min="0" max="100" step="1" value="${esc(Math.round(Number(l.chance)||0))}"></label>
+      <label class="pct" title="${nodeMode(node)==='additive'?'independent % chance this lora is included':'% chance this lora is the one picked'}">%<input class="num lc" type="number" min="0" max="100" step="1" value="${esc(Math.round(Number(l.chance)||0))}"></label>
       <button class="lx" title="remove">✕</button>`;
     const img = row.querySelector('img.th'); if(img && (img.dataset.full||img.dataset.version||img.dataset.model)) { try{ HoverPreview.bind(img); }catch(_){} }
     row.querySelector('.lpw').addEventListener('input', e=>{ l.promptWords=e.target.value; autosave(); scheduleGen(); });
     row.querySelector('.lw').addEventListener('input', e=>{ const v=parseFloat(e.target.value); l.weight=isNaN(v)?1:v; autosave(); scheduleGen(); });
     const cinp = row.querySelector('.lc');
     cinp.addEventListener('change', ()=>{
-      const chances = node.loras.map(x=>Number(x.chance)||0);
-      const next = Core.rebalanceChances(chances, i, parseFloat(cinp.value));
-      node.loras.forEach((x,j)=> x.chance = next[j]);
-      renderLoras(el, node);                    // reflect the proportional adjustment
+      if(nodeMode(node)==='additive'){
+        // independent: set just this lora's chance, leave the others alone
+        l.chance = Math.max(0, Math.min(100, Math.round(parseFloat(cinp.value)||0)));
+        cinp.value = l.chance;
+      } else {
+        // pick-one: the edited value is exact, the others rebalance to sum 100
+        const next = Core.rebalanceChances(node.loras.map(x=>Number(x.chance)||0), i, parseFloat(cinp.value));
+        node.loras.forEach((x,j)=> x.chance = next[j]);
+        renderLoras(el, node);                  // reflect the proportional adjustment
+      }
       const w=el.querySelector('.pbwarn'); if(w) w.textContent=lorasWarn(node);
       autosave(); scheduleGen();
     });
@@ -488,11 +535,16 @@ function addLoraToNode(nodeId, l){
     node.loras = node.loras||[];
     node.loras.push({ stem:l.stem, name:l.name, weight:l.weight==null?1:l.weight, chance:0, promptWords:'',
       imageThumb:l.imageThumb||'', imageFull:l.imageFull||'', modelId:l.modelId||null, versionId:l.versionId||null });
-    // give the newcomer an even-ish share, pulling the others down proportionally
     const idx=node.loras.length-1;
-    const share = Math.round(100/node.loras.length);
-    const next = Core.rebalanceChances(node.loras.map(x=>Number(x.chance)||0), idx, share);
-    node.loras.forEach((x,j)=> x.chance=next[j]);
+    if(nodeMode(node)==='additive'){
+      // independent: default the newcomer to 100% (in by default; dial down for odds)
+      node.loras[idx].chance = 100;
+    } else {
+      // pick-one: give the newcomer an even share, pulling the others down proportionally
+      const share = Math.round(100/node.loras.length);
+      const next = Core.rebalanceChances(node.loras.map(x=>Number(x.chance)||0), idx, share);
+      node.loras.forEach((x,j)=> x.chance=next[j]);
+    }
   });
 }
 

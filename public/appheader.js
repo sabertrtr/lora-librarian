@@ -23,6 +23,7 @@
     { key: 'library',    href: '/library',        label: 'Library',    icon: '📚' },
     { key: 'curate',     href: '/curate',         label: 'Curate',     icon: '✎'  },
     { key: 'collection', href: '/collection',     label: 'Collection', icon: '🗃' },
+    { key: 'builder',    href: '/promptbuilder',  label: 'Prompt Builder', icon: '🧩' },
     { key: 'categories', href: '/category-setup', label: 'Categories', icon: '⚙'  },
     { key: 'scan',       href: '/setup',          label: 'Scan',       icon: '📁' }
   ];

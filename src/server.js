@@ -12,6 +12,7 @@ const { extractTagFrequency, extractTagFrequencyFromBuffer } = require('./safete
 const { ensureEscaped, ensureEscapedLine } = require('./promptEscape');
 const { createDraft, getDraft, deleteDraft } = require('./draftCache');
 const { StagingStore } = require('./stagingStore');
+const { PromptStore } = require('./promptStore');
 
 const app = express();
 app.use(express.json());
@@ -52,10 +53,10 @@ app.use((req, res, next) => {
   // DATA routes below are NOT exempt -- they still require the header, supplied
   // by the gallery from the capability URL (or by the extension from its config).
   if (req.path === '/gallery' || req.path === '/library' || req.path === '/collection' || req.path === '/curate') return next();
-  if (req.path === '/setup' || req.path === '/category-setup') return next();
+  if (req.path === '/setup' || req.path === '/category-setup' || req.path === '/promptbuilder') return next();
   // Shared client components (no secret in them) served to the exempt HTML pages.
   if (req.path === '/hoverpreview.js' || req.path === '/catpicker.js' || req.path === '/alternates.js') return next();
-  if (req.path === '/appheader.js' || req.path === '/mergecard.js') return next();
+  if (req.path === '/appheader.js' || req.path === '/mergecard.js' || req.path === '/promptbuilder-core.js') return next();
 
   if (req.get('x-service-token') !== SERVICE_TOKEN) {
     return res.status(401).json({ error: 'bad or missing x-service-token header' });
@@ -75,6 +76,8 @@ if (!fs.existsSync(WILDCARDS_FILE)) {
 }
 const STAGING_FILE = process.env.STAGING_FILE || path.join(WILDCARDS_DIR, 'staging.json');
 const staging = new StagingStore(STAGING_FILE);
+const PROMPT_FILE = process.env.PROMPT_FILE || path.join(WILDCARDS_DIR, 'promptbuilder.json');
+const promptStore = new PromptStore(PROMPT_FILE);
 
 function cleanTriggers(trainedWords) {
   return (trainedWords || [])
@@ -623,6 +626,12 @@ app.get('/mergecard.js', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/mergecard.js'));
 });
 
+// Prompt-builder pure-logic core, shared by the page + the Node tests (auth-exempt).
+app.get('/promptbuilder-core.js', (req, res) => {
+  res.type('application/javascript');
+  res.sendFile(path.join(__dirname, '../public/promptbuilder-core.js'));
+});
+
 app.get('/review', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/review.html'));
 });
@@ -649,6 +658,55 @@ app.get('/setup', (req, res) => {
 // Category structure editor (roots + nested sub-categories).
 app.get('/category-setup', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/category-setup.html'));
+});
+
+// Prompt builder: node-graph canvas that composes a Forge prompt from library
+// loras (exempt HTML like /gallery; data comes from the routes below).
+app.get('/promptbuilder', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/promptbuilder.html'));
+});
+
+// GET /prompt-graph -> the saved graph (token-gated data route). Default 15-node
+// graph on first run. PUT to persist. The store reconciles on both read and write
+// so a hand-edited or older file is repaired, never trusted blindly.
+app.get('/prompt-graph', (req, res) => {
+  try { res.json({ graph: promptStore.load() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/prompt-graph', (req, res) => {
+  const graph = req.body && req.body.graph;
+  if (!graph || typeof graph !== 'object') return res.status(400).json({ error: 'graph object required' });
+  try { res.json({ ok: true, graph: promptStore.save(graph) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET /prompt-loras -> the flat, pickable lora list for a node's lora picker:
+// every catalogued lora in library.yaml (merged cards expanded to their members),
+// deduped by stem, enriched with image + tags from the civitai cache. Token-gated.
+app.get('/prompt-loras', (req, res) => {
+  try {
+    const seen = new Set();
+    const out = [];
+    const push = (stem, name, weight, tags, extra) => {
+      if (!stem || seen.has(stem)) return;
+      seen.add(stem);
+      out.push({ stem, name: name || stem, weight: weight == null ? 1 : weight, tags: tags || [], ...(extra || {}) });
+    };
+    for (const c of enrichedCategories()) {
+      for (const it of c.items) {
+        if (it.merged) {
+          for (const m of (it.members || [])) push(m.stem, m.name, m.weight, m.tags, { imageThumb: m.imageThumb, imageFull: m.imageFull, modelId: m.modelId, versionId: m.versionId, category: c.category });
+        } else {
+          push(it.stem, it.name, it.weight, it.tags, { imageThumb: it.imageThumb, imageFull: it.imageFull, modelId: it.modelId, versionId: it.versionId, category: c.category });
+        }
+      }
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ loras: out });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Full-collection view: every LoRA in the hash-match cache (i.e. every local

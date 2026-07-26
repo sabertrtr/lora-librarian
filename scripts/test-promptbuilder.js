@@ -129,11 +129,82 @@ console.log('\n-- prompt composition');
 }
 eq('empty graph composes to empty string', C.composePrompt({ nodes: [], edges: [] }), '');
 
+console.log('\n-- node modes: exclusive (pick one) vs additive (independent)');
+{
+  // additive: two loras at 100 each -> BOTH always land (independent, not normalized)
+  const graph = { version: 1, nodes: [{ id: 'n', x: 0, mode: 'additive', promptText: 'style', loras: [
+    { stem: 'A', weight: 1, chance: 100, promptWords: 'aaa' },
+    { stem: 'B', weight: 1, chance: 100, promptWords: 'bbb' }
+  ] }], edges: [] };
+  eq('additive 100/100 emits BOTH loras', C.composePrompt(graph, mulberry32(3)),
+    'style, <lora:A:1>, aaa, <lora:B:1>, bbb');
+}
+{
+  // additive: 0% never lands, 100% always -> only the 100 shows
+  const graph = { version: 1, nodes: [{ id: 'n', x: 0, mode: 'additive', promptText: '', loras: [
+    { stem: 'A', weight: 1, chance: 0, promptWords: 'aaa' },
+    { stem: 'B', weight: 1, chance: 100, promptWords: 'bbb' }
+  ] }], edges: [] };
+  const r = mulberry32(9); let sawA = false, allB = true;
+  for (let i = 0; i < 60; i++) { const s = C.composePrompt(graph, r); if (s.includes('lora:A')) sawA = true; if (!s.includes('lora:B')) allB = false; }
+  ok('additive 0% lora never lands', !sawA);
+  ok('additive 100% lora always lands', allB);
+}
+{
+  // additive: a 50% lora lands roughly half the time, INDEPENDENT of a 100% one
+  const graph = { version: 1, nodes: [{ id: 'n', x: 0, mode: 'additive', promptText: '', loras: [
+    { stem: 'A', weight: 1, chance: 50, promptWords: '' }
+  ] }], edges: [] };
+  const r = mulberry32(555); let a = 0, N = 4000;
+  for (let i = 0; i < N; i++) if (C.composePrompt(graph, r).includes('lora:A')) a++;
+  ok('additive 50% lands ~half (got ' + (a / N * 100).toFixed(1) + '%)', a / N > 0.46 && a / N < 0.54);
+}
+{
+  // additive: a node can emit NOTHING (all low chances all miss)
+  const graph = { version: 1, nodes: [{ id: 'n', x: 0, mode: 'additive', promptText: '', loras: [
+    { stem: 'A', weight: 1, chance: 1, promptWords: '' }
+  ] }], edges: [] };
+  const r = mulberry32(1); let empties = 0;
+  for (let i = 0; i < 30; i++) if (C.composePrompt(graph, r) === '') empties++;
+  ok('additive node with only misses emits an empty string', empties > 0);
+}
+{
+  // rollNode returns array; exclusive is always exactly one, additive 0..n
+  const ex = { mode: 'exclusive', loras: [{ stem: 'A', chance: 50 }, { stem: 'B', chance: 50 }] };
+  eq('exclusive rollNode always returns exactly one', C.rollNode(ex, mulberry32(2)).length, 1);
+  const ad = { mode: 'additive', loras: [{ stem: 'A', chance: 100 }, { stem: 'B', chance: 100 }] };
+  eq('additive rollNode can return many', C.rollNode(ad, mulberry32(2)).map(l => l.stem), ['A', 'B']);
+}
+{
+  // weighted form: additive emits one independent group per lora with an empty branch
+  const graph = { version: 1, nodes: [{ id: 'n', x: 0, mode: 'additive', promptText: 'q', loras: [
+    { stem: 'A', weight: 1, chance: 70, promptWords: 'aaa' },
+    { stem: 'B', weight: 1, chance: 100, promptWords: 'bbb' },
+    { stem: 'C', weight: 1, chance: 0, promptWords: 'ccc' }
+  ] }], edges: [] };
+  eq('additive weighted form: per-lora {c::opt|rest::}, 100% bare, 0% omitted',
+    C.weightedForm(graph), 'q, {70::<lora:A:1>, aaa|30::}, <lora:B:1>, bbb');
+}
+{
+  // exclusive weighted form unchanged
+  const graph = { version: 1, nodes: [{ id: 'n', x: 0, mode: 'exclusive', promptText: '', loras: [
+    { stem: 'A', weight: 1, chance: 60, promptWords: 'aaa' },
+    { stem: 'B', weight: 1, chance: 40, promptWords: 'bbb' }
+  ] }], edges: [] };
+  eq('exclusive weighted form still a single pick-one group',
+    C.weightedForm(graph), '{60::<lora:A:1>, aaa|40::<lora:B:1>, bbb}');
+}
+eq('unknown/missing mode sanitizes to exclusive', C.sanitizeMode('nonsense'), 'exclusive');
+eq('sanitizeMode passes additive through', C.sanitizeMode('additive'), 'additive');
+
 console.log('\n-- default graph');
 {
   const g = C.defaultGraph();
   eq('seeds all 15 categories', g.nodes.length, 15);
   eq('first label', g.nodes[0].label, 'quality');
+  eq('quality defaults to additive (mods stack)', g.nodes.find(n => n.label === 'quality').mode, 'additive');
+  eq('style defaults to additive', g.nodes.find(n => n.label === 'style').mode, 'additive');
+  eq('character(s) defaults to exclusive (pick one)', g.nodes.find(n => n.label === 'character(s)').mode, 'exclusive');
   eq('chained head-to-tail', g.edges.length, 14);
   eq('default order matches the label list', C.deriveOrder(g.nodes, g.edges).map(id => g.nodes.find(n => n.id === id).label), C.DEFAULT_LABELS);
 }
@@ -152,6 +223,7 @@ console.log('\n-- import reconciliation');
   const imported = { nodes: [{ label: 'quality', loras: [{ stem: 'A' }] }] };  // no id/x/y/promptText; lora missing most
   const { graph, report } = C.reconcile(imported);
   ok('missing node id was seeded', !!graph.nodes[0].id);
+  eq('missing mode seeded to exclusive', graph.nodes[0].mode, 'exclusive');
   eq('missing promptText seeded to default ""', graph.nodes[0].promptText, '');
   eq('missing lora weight seeded to 1', graph.nodes[0].loras[0].weight, 1);
   eq('missing lora chance seeded to 0', graph.nodes[0].loras[0].chance, 0);

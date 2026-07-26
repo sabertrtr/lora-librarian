@@ -27,9 +27,17 @@
   // ids). A field NOT listed here that shows up on import is "unmapped" -- set
   // aside for review, never a crash. A field listed in DEPRECATED_* is reported
   // with a suggested destination.
+  // A node either picks EXACTLY ONE lora (mutually exclusive -- e.g. a character:
+  // chances sum to 100, weighted pick-one) or rolls EACH lora INDEPENDENTLY
+  // (additive -- e.g. quality/style mods: each has its own 0-100 chance and any
+  // number, including none, can land in one generation).
+  const MODES = ['exclusive', 'additive'];
+  function sanitizeMode(m) { return MODES.indexOf(m) >= 0 ? m : 'exclusive'; }
+
   const NODE_FIELD_DEFAULTS = {
     id: () => genId('n'),
     label: () => 'node',
+    mode: () => 'exclusive',
     x: () => 40,
     y: () => 40,
     promptText: () => '',
@@ -148,31 +156,57 @@
     return loras[loras.length - 1];
   }
 
-  function nodeParts(node, lora) {
+  // Roll a node -> the loras that land this generation.
+  //   exclusive: exactly one (weighted; a node with loras always emits one).
+  //   additive : each lora independently included iff r()*100 < its chance, so
+  //              zero, one, or many can land.
+  function rollNode(node, r) {
+    const loras = (node.loras || []).filter(l => l && l.stem);
+    if (!loras.length) return [];
+    if (sanitizeMode(node.mode) === 'additive') {
+      return loras.filter(l => r() * 100 < Math.max(0, Math.min(100, num(l.chance, 0))));
+    }
+    const one = pickLora(loras, r);
+    return one ? [one] : [];
+  }
+
+  function nodeParts(node, lora) {   // kept for API stability; single-lora helper
+    return lora ? partsFor(node.promptText, [lora]) : partsFor(node.promptText, []);
+  }
+  function partsFor(promptText, loras) {
     const parts = [];
-    if (node.promptText && node.promptText.trim()) parts.push(node.promptText.trim());
-    if (lora && lora.stem) {
-      parts.push(loraCall(lora));
-      if (lora.promptWords && lora.promptWords.trim()) parts.push(lora.promptWords.trim());
+    if (promptText && promptText.trim()) parts.push(promptText.trim());
+    for (const l of loras) {
+      if (!l || !l.stem) continue;
+      parts.push(loraCall(l));
+      if (l.promptWords && l.promptWords.trim()) parts.push(l.promptWords.trim());
     }
     return parts;
   }
 
-  // Concrete prompt: rolls one lora per node by its chances. r defaults to
-  // Math.random; pass a seeded rng for deterministic tests / reproducible rolls.
+  // Concrete prompt: rolls each node per its mode. r defaults to Math.random;
+  // pass a seeded rng for deterministic tests / reproducible rolls.
   function composePrompt(graph, r) {
     r = r || Math.random;
     const nodes = (graph && graph.nodes) || [];
     const byId = new Map(nodes.map(n => [n.id, n]));
     return deriveOrder(nodes, (graph && graph.edges) || [])
-      .map(id => nodeParts(byId.get(id), pickLora(byId.get(id).loras, r)).join(', '))
+      .map(id => { const node = byId.get(id); return partsFor(node.promptText, rollNode(node, r)).join(', '); })
       .filter(s => s.length)
       .join(', ');
   }
 
-  // Dynamic-Prompts weighted form: the deterministic prompt text plus, for each
-  // node with loras, a weighted variant group `{60::optA|40::optB}` so Forge does
-  // the rolling. Lets one exported string cover every combination.
+  function loraOpt(l) {
+    const o = [loraCall(l)];
+    if (l.promptWords && l.promptWords.trim()) o.push(l.promptWords.trim());
+    return o.join(', ');
+  }
+
+  // Dynamic-Prompts weighted form: the deterministic prompt text plus, per node:
+  //   exclusive -> ONE weighted variant group `{60::optA|40::optB}` (pick one).
+  //   additive  -> each lora its OWN group `{70::opt|30::}` (independent include),
+  //               so Forge rolls each mod separately. Lets one string cover every
+  //               combination.
   function weightedForm(graph) {
     const nodes = (graph && graph.nodes) || [];
     const byId = new Map(nodes.map(n => [n.id, n]));
@@ -181,14 +215,19 @@
         const node = byId.get(id);
         const bits = [];
         if (node.promptText && node.promptText.trim()) bits.push(node.promptText.trim());
-        const loras = node.loras || [];
+        const loras = (node.loras || []).filter(l => l && l.stem);
         if (loras.length) {
-          const opts = loras.map(l => {
-            const o = [loraCall(l)];
-            if (l.promptWords && l.promptWords.trim()) o.push(l.promptWords.trim());
-            return `${Math.round(num(l.chance, 0))}::${o.join(', ')}`;
-          });
-          bits.push(opts.length === 1 ? opts[0].replace(/^\d+::/, '') : `{${opts.join('|')}}`);
+          if (sanitizeMode(node.mode) === 'additive') {
+            for (const l of loras) {
+              const c = Math.round(num(l.chance, 0));
+              if (c >= 100) bits.push(loraOpt(l));                         // always in
+              else if (c > 0) bits.push(`{${c}::${loraOpt(l)}|${100 - c}::}`); // c% in, else nothing
+              // c <= 0 -> omit entirely
+            }
+          } else {
+            const opts = loras.map(l => `${Math.round(num(l.chance, 0))}::${loraOpt(l)}`);
+            bits.push(opts.length === 1 ? opts[0].replace(/^\d+::/, '') : `{${opts.join('|')}}`);
+          }
         }
         return bits.join(', ');
       })
@@ -197,10 +236,16 @@
   }
 
   // ---- default graph --------------------------------------------------------
+  // Categories whose mods stack rather than being mutually exclusive. A character
+  // node picks one; quality/style/feel mods roll independently. Users can flip any
+  // node either way -- these are just the sensible starting defaults.
+  const ADDITIVE_LABELS = new Set(['quality', 'quality2', 'style', 'feel']);
+
   function defaultGraph() {
     const nodes = DEFAULT_LABELS.map((label, i) => ({
       id: genId('n'),
       label,
+      mode: ADDITIVE_LABELS.has(label) ? 'additive' : 'exclusive',
       x: 40 + i * (NODE_W + 40),
       y: 120,
       promptText: '',
@@ -242,8 +287,11 @@
     (rawNodes || []).forEach((rn, idx) => {
       graph.nodes.push(reconcileRecord(
         rn, idx, 'node', NODE_FIELD_DEFAULTS, depNode, report,
-        (node, rec) => { node.loras = Array.isArray(rec.loras) ? rec.loras.map((rl, li) =>
-          reconcileRecord(rl, `${idx}.lora[${li}]`, 'lora', LORA_FIELD_DEFAULTS, depLora, report)) : []; }
+        (node, rec) => {
+          node.mode = sanitizeMode(node.mode);   // coerce any unknown mode to a safe default
+          node.loras = Array.isArray(rec.loras) ? rec.loras.map((rl, li) =>
+            reconcileRecord(rl, `${idx}.lora[${li}]`, 'lora', LORA_FIELD_DEFAULTS, depLora, report)) : [];
+        }
       ));
     });
 
@@ -280,10 +328,10 @@
   }
 
   return {
-    CURRENT_VERSION, NODE_W, DEFAULT_LABELS,
+    CURRENT_VERSION, NODE_W, DEFAULT_LABELS, MODES, ADDITIVE_LABELS, sanitizeMode,
     NODE_FIELD_DEFAULTS, LORA_FIELD_DEFAULTS,
     genId, rebalanceChances, normalizeChances, deriveOrder,
-    loraCall, pickLora, nodeParts, composePrompt, weightedForm,
+    loraCall, pickLora, rollNode, nodeParts, composePrompt, weightedForm,
     defaultGraph, reconcile
   };
 });

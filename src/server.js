@@ -25,6 +25,7 @@ const locations = require('./locations');
 // 2026-10-04, src/server.js:73).
 let LOC, staging, promptStore;
 try {
+  locations.checkEnvFile(ENV_FILE);   // 0600 and ours, before any value in it is used
   LOC = locations.resolve(process.env);
   locations.check(LOC);
   staging = new StagingStore(LOC.stagingFile);   // refuses a missing or corrupt queue

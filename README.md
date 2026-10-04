@@ -60,13 +60,15 @@ browser extension.
 ```
 cp .env.example .env      # fill in the tokens and the ABSOLUTE data/download paths
 npm install
-npm run init              # install step: creates WILDCARDS_DIR (0700) and seeds
-                          # library.yaml, staging.json, promptbuilder.json (0600)
+npm run init              # install step: creates WILDCARDS_DIR (0700), seeds
+                          # library.yaml, staging.json, promptbuilder.json (0600),
+                          # and sets .env to 0600 (it holds the tokens)
 npm start                 # http(s)://<HOST>:<PORT>, default 0.0.0.0:8420
 ```
-The service never creates its own data: a missing or relative location
-is a refusal at start that names the absolute path and the fix (usually
-`npm run init`), not an empty library at the wrong path.
+The service never creates its own data: a missing, relative, symlinked or
+loosened location (group/world access, another owner) is a refusal at start
+that names the absolute path and the fix (usually `npm run init`), not an
+empty library at the wrong path.
 See `.env.example` for all config (ports, TLS, data/download paths). For a
 LAN/remote setup (browser on a different machine than the service) you need TLS —
 the extension's secure context upgrades non-loopback `http` to `https`.

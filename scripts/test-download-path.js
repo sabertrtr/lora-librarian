@@ -3,8 +3,9 @@
 // 2026-10-04: src/civitai.js:174, src/server.js:206 and :425).
 //
 // Runs the real Express app in-process against a scratch install in a temp dir,
-// with fetch stubbed: Civitai API calls and downloads are answered locally, so
-// nothing leaves this machine and no real token is used. Every escape attempt
+// loaded from a scratch COPY of this tree (so the checkout's own .env is never
+// loaded or checked), with fetch stubbed: Civitai API calls and downloads are
+// answered locally, so nothing leaves this machine and no real token is used. Every escape attempt
 // is asserted to leave NO file outside the download folder.
 //
 //   node scripts/test-download-path.js
@@ -23,7 +24,11 @@ fs.mkdirSync(dlRoot, { recursive: true, mode: 0o700 });
 fs.mkdirSync(outside);
 fs.symlinkSync(outside, path.join(dlRoot, 'linked'));
 
-const core = require('../public/promptbuilder-core.js');
+// A copy of the code with no .env beside it.
+const tree = path.join(tmp, 'tree');
+for (const d of ['src', 'public']) fs.cpSync(path.join(__dirname, '..', d), path.join(tree, d), { recursive: true });
+fs.symlinkSync(path.join(__dirname, '..', 'node_modules'), path.join(tree, 'node_modules'));
+const core = require(path.join(tree, 'public', 'promptbuilder-core.js'));
 const rec = (id, url) => ({ id, civitaiUrl: url, name: 'N', source: '', category: '', stem: 'S', weight: 1,
   selectedTags: [], lineText: `<lora:S:1>, N ${id}`, downloaded: false, isReplace: false, stagedAt: '2026-10-04T00:00:00Z' });
 const records = {};
@@ -35,8 +40,7 @@ seed('library.yaml', 'character:\nstyle:\nconcept:\nenvironment:\n');
 seed('staging.json', JSON.stringify(records, null, 2));
 seed('promptbuilder.json', JSON.stringify(core.defaultGraph(), null, 2));
 
-// Every location setting the server reads is set here, so the real .env (which
-// dotenv also loads) can never supply one: dotenv does not override a set key.
+// Every location setting the server reads is set here.
 Object.assign(process.env, {
   WILDCARDS_DIR: dataDir, DOWNLOAD_DIR: dlRoot, STAGING_FILE: '', PROMPT_FILE: '', CIVITAI_CACHE_FILE: '',
   SERVICE_TOKEN: 'test-token', CIVITAI_TOKEN: '', HOST: '127.0.0.1', PORT: '0',
@@ -75,12 +79,12 @@ function filesUnder(dir) {
   }
   return out;
 }
-const strays = () => filesUnder(tmp).filter(p => !p.startsWith(dlRoot + path.sep) && !p.startsWith(dataDir + path.sep));
+const strays = () => filesUnder(tmp).filter(p => !p.startsWith(dlRoot + path.sep) && !p.startsWith(dataDir + path.sep) && !p.startsWith(tree + path.sep));
 
 (async () => {
   let server;
   try {
-    const { app } = require('../src/server');
+    const { app } = require(path.join(tree, 'src', 'server'));
     server = await new Promise(r => { const s = app.listen(0, '127.0.0.1', () => r(s)); });
     const base = `http://127.0.0.1:${server.address().port}`;
     const post = (p, body) => realFetch(base + p, { method: 'POST',
@@ -121,7 +125,7 @@ const strays = () => filesUnder(tmp).filter(p => !p.startsWith(dlRoot + path.sep
       fs.existsSync(path.join(dlRoot, 'character', 'anime', 'Good.safetensors')));
 
     console.log('\n-- the download root is installed, never created');
-    const { downloadPrimaryFile } = require('../src/civitai');
+    const { downloadPrimaryFile } = require(path.join(tree, 'src', 'civitai'));
     const missingRoot = path.join(tmp, 'not-installed', 'downloads');
     let err = null;
     try { await downloadPrimaryFile({ id: 111, files: [{ primary: true, name: 'Good.safetensors', downloadUrl: 'https://dl.invalid/good' }] }, '', missingRoot, 'character'); }

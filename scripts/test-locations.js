@@ -6,10 +6,10 @@
 // (installed-locations audit 2026-10-04: src/server.js:73,
 // src/stagingStore.js:35, src/promptStore.js:13, .env / data/ modes).
 //
-// Every server run is a child process in a scratch dir, with every location
-// setting given explicitly (so the checkout's own .env can never supply one),
-// on port 0, killed by its own PID once it either exits or says it is
-// listening.
+// Everything runs from a scratch COPY of this tree, so the checkout's own .env
+// is never loaded, checked or chmod'ed by a test. Every server run is a child
+// process with every location setting given explicitly, on port 0, killed by
+// its own PID once it either exits or says it is listening.
 //
 //   node scripts/test-locations.js
 
@@ -18,10 +18,13 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const ROOT = path.join(__dirname, '..');
+const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lora-locations-test-')));
+const ROOT = path.join(tmp, 'tree');
+for (const d of ['src', 'public', 'scripts']) fs.cpSync(path.join(__dirname, '..', d), path.join(ROOT, d), { recursive: true });
+fs.symlinkSync(path.join(__dirname, '..', 'node_modules'), path.join(ROOT, 'node_modules'));
 const SERVER = path.join(ROOT, 'src', 'server.js');
 const INIT = path.join(ROOT, 'scripts', 'init.js');
-const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lora-locations-test-')));
+const ENV_FILE = path.join(ROOT, '.env');   // the copy's .env, made by the tests below
 
 let pass = 0, fail = 0;
 function ok(label, cond, extra) {
@@ -127,9 +130,56 @@ function scratch(name) {
       ok('the server starts on the installed locations', s.code === 'listening', s.out.trim().split('\n')[0]);
     }
 
+    console.log('\n-- who may write: owner-only modes, set by init, checked at boot');
+    {
+      const base = scratch('modes');
+      const data = path.join(base, 'data');
+      const dl = path.join(base, 'downloads');
+      const env = envFor({ WILDCARDS_DIR: data, DOWNLOAD_DIR: dl });
+      const i = await run(INIT, env, base);
+      ok('init exits 0', i.code === 0, i.out.trim());
+
+      fs.chmodSync(data, 0o775);
+      let r = await run(SERVER, env, base);
+      ok('a group-writable data directory (0775): the server refuses', r.code !== 'listening', `code ${r.code}`);
+      ok('  ...naming it and the fix', r.out.includes(data) && r.out.includes(`chmod 700 ${data}`), r.out.trim().split('\n')[0]);
+      fs.chmodSync(data, 0o700);
+
+      const staging = path.join(data, 'staging.json');
+      fs.chmodSync(staging, 0o664);
+      r = await run(SERVER, env, base);
+      ok('a group-writable staging.json (0664): the server refuses', r.code !== 'listening' && r.out.includes(`chmod 600 ${staging}`), r.out.trim().split('\n')[0]);
+
+      fs.writeFileSync(ENV_FILE, '# test .env, no secrets\n', { mode: 0o644 });
+      fs.chmodSync(ENV_FILE, 0o664);
+      r = await run(SERVER, env, base);
+      ok('a group-writable, world-readable .env (0664): the server refuses', r.code !== 'listening' && r.out.includes(`chmod 600 ${ENV_FILE}`), r.out.trim().split('\n')[0]);
+
+      const again = await run(INIT, env, base);
+      ok('init tightens them back', again.code === 0 && (fs.statSync(data).mode & 0o777) === 0o700 &&
+        (fs.statSync(staging).mode & 0o777) === 0o600 && (fs.statSync(ENV_FILE).mode & 0o777) === 0o600, again.out.trim());
+      ok('  ...and says what it changed', /chmod 600 .*staging\.json \(was 664\)/.test(again.out) && /chmod 600 .*\.env \(was 664\)/.test(again.out), again.out.trim());
+      r = await run(SERVER, env, base);
+      ok('  ...and the server then starts', r.code === 'listening', r.out.trim().split('\n')[0]);
+
+      fs.rmSync(ENV_FILE);
+      fs.symlinkSync(staging, ENV_FILE);
+      r = await run(SERVER, env, base);
+      ok('a .env that is a symlink: the server refuses', r.code !== 'listening' && /symlink/.test(r.out), r.out.trim().split('\n')[0]);
+      fs.rmSync(ENV_FILE);
+
+      const libFile = path.join(data, 'library.yaml');
+      fs.renameSync(libFile, libFile + '.real');
+      fs.symlinkSync(libFile + '.real', libFile);
+      r = await run(SERVER, env, base);
+      ok('a library.yaml that is a symlink: the server refuses', r.code !== 'listening' && /symlink/.test(r.out), r.out.trim().split('\n')[0]);
+      fs.rmSync(libFile);
+      fs.renameSync(libFile + '.real', libFile);
+    }
+
     console.log('\n-- the desktop app\'s first-run install (electron/main.js installAppData)');
     {
-      const locations = require('../src/locations');
+      const locations = require(path.join(ROOT, 'src', 'locations'));
       const base = scratch('electron');
       const picked = path.join(base, 'Forge', 'models', 'Lroa');   // a typo'd pick
       let err = null;
@@ -142,7 +192,7 @@ function scratch(name) {
     }
 
     console.log('\n-- the staging store');
-    const { StagingStore } = require('../src/stagingStore');
+    const { StagingStore } = require(path.join(ROOT, 'src', 'stagingStore'));
     {
       const d = scratch('staging');
       const f = path.join(d, 'staging.json');
@@ -165,7 +215,7 @@ function scratch(name) {
     }
 
     console.log('\n-- the prompt-graph store');
-    const { PromptStore } = require('../src/promptStore');
+    const { PromptStore } = require(path.join(ROOT, 'src', 'promptStore'));
     {
       const d = scratch('prompt');
       const f = path.join(d, 'promptbuilder.json');

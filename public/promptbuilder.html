@@ -248,6 +248,9 @@ function descendants(id){
 }
 
 // ---------- rendering ----------
+// Set when the saved graph failed to load; render() keeps it in the header so
+// the default layout on screen is never mistaken for the saved one.
+let graphLoadError = '';
 function render(){
   // remove node els (keep the svg)
   canvas.querySelectorAll('.pbnode').forEach(n=>n.remove());
@@ -257,6 +260,7 @@ function render(){
   drawLinks();
   renderGen();
   AppHeader.setInfo(`${graph.nodes.length} nodes · ${graph.edges.length} links`);
+  if (graphLoadError) AppHeader.setInfo(graphLoadError);
 }
 
 function drawLinks(){
@@ -619,6 +623,10 @@ async function boot(){
       fetch('/prompt-loras', { headers:authHeaders })
     ]);
     if(gr.ok) graph = (await gr.json()).graph || graph;
+    // A graph that failed to load is said out loud: the canvas below is the
+    // default layout, NOT the saved one, and the server refuses to save over a
+    // file it could not read.
+    else graphLoadError = 'Saved prompt graph NOT loaded -- showing the default layout. '+((await gr.json().catch(()=>({}))).error || ('HTTP '+gr.status));
     if(lr.ok) library = (await lr.json()).loras || [];
   } catch(e){ AppHeader.setInfo('Failed to load: '+e.message); }
   if(!graph.nodes || !graph.nodes.length) graph = Core.defaultGraph();

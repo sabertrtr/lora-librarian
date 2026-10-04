@@ -42,11 +42,14 @@
 
 <script>
   const $ = id => document.getElementById(id);
+  let hasToken = false;
   (async () => {
     const d = await window.setup.defaults();
     $('cUrl').textContent = d.baseUrl;
     $('cTok').textContent = d.serviceToken;
     if (d.downloadDir) $('dir').value = d.downloadDir;
+    hasToken = !!d.hasCivitaiToken;
+    if (hasToken) $('tok').placeholder = '(kept from before -- leave blank to keep it)';
   })();
   $('pick').addEventListener('click', async () => {
     const p = await window.setup.pickFolder();
@@ -54,9 +57,12 @@
   });
   $('go').addEventListener('click', async () => {
     const civitaiToken = $('tok').value.trim();
-    if (!civitaiToken) { $('err').textContent = 'Enter your Civitai token to continue.'; return; }
+    if (!civitaiToken && !hasToken) { $('err').textContent = 'Enter your Civitai token to continue.'; return; }
     $('go').disabled = true; $('go').textContent = 'Starting…';
-    await window.setup.save({ civitaiToken, downloadDir: $('dir').value || null });
+    const r = await window.setup.save({ civitaiToken, downloadDir: $('dir').value || null });
+    // A refused install (e.g. the picked loras folder does not exist) is shown,
+    // with the path, and setup stays open so it can be corrected.
+    if (r && r.ok === false) { $('err').textContent = r.error; $('go').disabled = false; $('go').textContent = 'Start'; }
   });
 </script>
 </body>

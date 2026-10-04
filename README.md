@@ -58,10 +58,15 @@ browser extension.
 
 ### Option B — bare service
 ```
-cp .env.example .env      # fill in CIVITAI_TOKEN + a random SERVICE_TOKEN
+cp .env.example .env      # fill in the tokens and the ABSOLUTE data/download paths
 npm install
+npm run init              # install step: creates WILDCARDS_DIR (0700) and seeds
+                          # library.yaml, staging.json, promptbuilder.json (0600)
 npm start                 # http(s)://<HOST>:<PORT>, default 0.0.0.0:8420
 ```
+The service never creates its own data: a missing or relative location
+is a refusal at start that names the absolute path and the fix (usually
+`npm run init`), not an empty library at the wrong path.
 See `.env.example` for all config (ports, TLS, data/download paths). For a
 LAN/remote setup (browser on a different machine than the service) you need TLS —
 the extension's secure context upgrades non-loopback `http` to `https`.
@@ -75,8 +80,11 @@ anywhere on a Civitai model page to stage the model you're already looking at.
 
 ## Tests
 ```
+npm run gate                        # syntax-checks every file, then runs every suite:
 node scripts/test-merge.js          # wildcard-file editing primitives
 node scripts/test-promptbuilder.js  # prompt-builder core logic
+node scripts/test-download-path.js  # no download can escape the download folder
+node scripts/test-locations.js      # installed locations: init makes, the server checks
 ```
 The merge suite exercises the wildcard-file editing primitives (merge/split/park,
 move, remove, the replaced-file marker) against a throwaway copy in a temp dir, and

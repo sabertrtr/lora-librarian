@@ -9,6 +9,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu, clipboard } = require('electr
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const locations = require('../src/locations');
 
 const DEFAULT_PORT = 8420;
 let mainWin = null;
@@ -20,28 +21,54 @@ function saveConfig(c) { fs.mkdirSync(userData(), { recursive: true }); fs.write
 function baseUrl(cfg) { return `http://127.0.0.1:${cfg.port || DEFAULT_PORT}`; }
 function galleryUrl(cfg, route) { return `${baseUrl(cfg)}${route || '/collection'}?k=${encodeURIComponent(cfg.serviceToken)}`; }
 
+// The app's two locations: its own data dir under userData, and the loras folder
+// the user picked at setup (or the app's own downloads dir if they picked none).
+function appLocations(cfg) {
+  return locations.resolve({
+    WILDCARDS_DIR: path.join(userData(), 'data'),
+    DOWNLOAD_DIR: cfg.downloadDir || path.join(userData(), 'downloads'),
+  });
+}
+
+// The install step, run ONLY from first-run setup (installed-locations audit
+// 2026-10-04, electron/main.js:28): it used to mkdir and seed on every start,
+// so a typo in the user-picked loras folder became a new empty folder Forge
+// never scans. A picked folder must already exist; only the app's own default
+// downloads dir is created. Throws a LocationError naming the path.
+function installAppData(cfg) {
+  return locations.install(appLocations(cfg), { createDownloadDir: !cfg.downloadDir });
+}
+
 // Point the server at userData paths + loopback plain-HTTP, then boot it. Env
 // MUST be set before require('../src/server') because that module computes its
-// paths at load time.
+// paths at load time. Nothing is created here: the server checks the installed
+// locations and refuses a missing one, and that refusal is shown to the user
+// with the way back (setup again) instead of an empty library.
 function startServer(cfg) {
-  const dataDir = path.join(userData(), 'data');
-  fs.mkdirSync(dataDir, { recursive: true });
-  const libraryYaml = path.join(dataDir, 'library.yaml');
-  if (!fs.existsSync(libraryYaml)) fs.writeFileSync(libraryYaml, 'character:\nstyle:\nconcept:\nenvironment:\n');
-  const downloadDir = cfg.downloadDir || path.join(userData(), 'downloads');
-  fs.mkdirSync(downloadDir, { recursive: true });
-
+  const locs = appLocations(cfg);
   process.env.HOST = '127.0.0.1';
   process.env.PORT = String(cfg.port || DEFAULT_PORT);
-  process.env.WILDCARDS_DIR = dataDir;
-  process.env.DOWNLOAD_DIR = downloadDir;
+  process.env.WILDCARDS_DIR = locs.wildcardsDir;
+  process.env.DOWNLOAD_DIR = locs.downloadDir;
   process.env.CIVITAI_TOKEN = cfg.civitaiToken || '';
   process.env.SERVICE_TOKEN = cfg.serviceToken;
   // Force plain HTTP on loopback (no cert): point TLS paths at a nonexistent file.
   process.env.TLS_KEY = path.join(userData(), '__no_cert__');
   process.env.TLS_CERT = path.join(userData(), '__no_cert__');
 
-  require('../src/server').start();
+  try {
+    require('../src/server').start();
+    return true;
+  } catch (e) {
+    const r = dialog.showMessageBoxSync({
+      type: 'error', title: 'LoRA Librarian cannot start',
+      message: 'LoRA Librarian did not start because a data location is missing or wrong.',
+      detail: `${e.message}\n\nRun setup again to install the missing location (existing files are kept), or Quit.`,
+      buttons: ['Run setup again', 'Quit'], defaultId: 0, cancelId: 1
+    });
+    if (r === 0) openSetup(cfg); else app.quit();
+    return false;
+  }
 }
 
 function openMainWindow(cfg) {
@@ -95,20 +122,25 @@ function openSetup(cfg) {
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, 'setup.html'));
 
+  // Setup can be reopened after a failed start; a handler may only be registered once.
+  for (const ch of ['setup:defaults', 'setup:pickFolder', 'setup:save']) ipcMain.removeHandler(ch);
   ipcMain.handle('setup:defaults', () => ({ serviceToken: cfg.serviceToken, baseUrl: baseUrl(cfg),
-    downloadDir: cfg.downloadDir || '' }));
+    downloadDir: cfg.downloadDir || '', hasCivitaiToken: !!cfg.civitaiToken }));
   ipcMain.handle('setup:pickFolder', async () => {
     const r = await dialog.showOpenDialog(win, { title: 'Pick your Stable Diffusion loras folder', properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
   });
   ipcMain.handle('setup:save', (_e, { civitaiToken, downloadDir }) => {
-    cfg.civitaiToken = (civitaiToken || '').trim();
+    // Reopened setup (after a refused start) may leave the token blank to keep it.
+    cfg.civitaiToken = (civitaiToken || '').trim() || cfg.civitaiToken || '';
     if (downloadDir) cfg.downloadDir = downloadDir;
+    // First-run install: the ONLY place the app creates its data locations.
+    try { installAppData(cfg); }
+    catch (e) { return { ok: false, error: e.message }; }
     saveConfig(cfg);
-    startServer(cfg);
-    openMainWindow(cfg);
+    if (startServer(cfg)) openMainWindow(cfg);
     win.close();
-    return true;
+    return { ok: true };
   });
 }
 
@@ -117,7 +149,7 @@ app.whenReady().then(() => {
   if (!cfg.serviceToken) { cfg.serviceToken = crypto.randomBytes(16).toString('hex'); saveConfig(cfg); }
   if (!cfg.port) cfg.port = DEFAULT_PORT;
   if (!cfg.civitaiToken) openSetup(cfg);
-  else { startServer(cfg); openMainWindow(cfg); }
+  else if (startServer(cfg)) openMainWindow(cfg);
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

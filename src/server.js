@@ -1,4 +1,7 @@
-require('dotenv').config();
+// The .env in THIS checkout, not one in whatever directory the process started
+// in: the settings come from one assigned place.
+const ENV_FILE = require('path').resolve(__dirname, '../.env');
+require('dotenv').config({ path: ENV_FILE });
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -14,6 +17,25 @@ const { ensureEscaped, ensureEscapedLine } = require('./promptEscape');
 const { createDraft, getDraft, deleteDraft } = require('./draftCache');
 const { StagingStore } = require('./stagingStore');
 const { PromptStore } = require('./promptStore');
+const locations = require('./locations');
+
+// Every location is installed by `npm run init` and only checked here: a missing
+// or relative one is a refusal naming the absolute path and the install step,
+// never an empty library made on the spot (installed-locations audit
+// 2026-10-04, src/server.js:73).
+let LOC, staging, promptStore;
+try {
+  LOC = locations.resolve(process.env);
+  locations.check(LOC);
+  staging = new StagingStore(LOC.stagingFile);   // refuses a missing or corrupt queue
+  promptStore = new PromptStore(LOC.promptFile);
+} catch (e) {
+  if (e instanceof locations.LocationError && require.main === module) {
+    console.error(`lora-librarian: refusing to start: ${e.message}`);
+    process.exit(1);
+  }
+  throw e;
+}
 
 const app = express();
 app.use(express.json());
@@ -65,20 +87,10 @@ app.use((req, res, next) => {
   next();
 });
 
-const WILDCARDS_DIR = process.env.WILDCARDS_DIR || './data';
-const DOWNLOAD_DIR = process.env.DOWNLOAD_DIR || './downloads';
+const WILDCARDS_DIR = LOC.wildcardsDir;
+const DOWNLOAD_DIR = LOC.downloadDir;
 const CIVITAI_TOKEN = process.env.CIVITAI_TOKEN;
-const WILDCARDS_FILE = path.join(WILDCARDS_DIR, 'library.yaml');
-// Seed an empty wildcard file (four canonical headers) on a fresh install so the
-// pages/parseLibrary don't ENOENT. No-op once it exists -- never touches data.
-if (!fs.existsSync(WILDCARDS_FILE)) {
-  fs.mkdirSync(WILDCARDS_DIR, { recursive: true });
-  fs.writeFileSync(WILDCARDS_FILE, 'character:\nstyle:\nconcept:\nenvironment:\n');
-}
-const STAGING_FILE = process.env.STAGING_FILE || path.join(WILDCARDS_DIR, 'staging.json');
-const staging = new StagingStore(STAGING_FILE);
-const PROMPT_FILE = process.env.PROMPT_FILE || path.join(WILDCARDS_DIR, 'promptbuilder.json');
-const promptStore = new PromptStore(PROMPT_FILE);
+const WILDCARDS_FILE = LOC.libraryFile;
 
 function cleanTriggers(trainedWords) {
   return (trainedWords || [])
@@ -729,7 +741,7 @@ app.get('/collection', (req, res) => {
 // GET /lines -> every entry in characters.yaml parsed into {category, items[]}
 // (file order), enriched with Civitai data from data/civitai_cache.json (keyed
 // by lora stem) when the reverse hash-match has been run. Token-required.
-const CIVITAI_CACHE_FILE = process.env.CIVITAI_CACHE_FILE || path.join(WILDCARDS_DIR, 'civitai_cache.json');
+const CIVITAI_CACHE_FILE = LOC.cacheFile;
 
 function readCivitaiCache() {
   try { return JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { return {}; }

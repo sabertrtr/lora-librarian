@@ -177,6 +177,16 @@ function scratch(name) {
       fs.renameSync(libFile + '.real', libFile);
     }
 
+    console.log('\n-- a value from its one place: SERVICE_TOKEN');
+    {
+      const base = scratch('notoken');
+      const data = path.join(base, 'data');
+      const env = envFor({ WILDCARDS_DIR: data, DOWNLOAD_DIR: path.join(base, 'downloads') });
+      await run(INIT, env, base);
+      const r = await run(SERVER, { ...env, SERVICE_TOKEN: '' }, base);
+      ok('an unset SERVICE_TOKEN: the server refuses to start (it used to switch auth off)', r.code !== 'listening' && /SERVICE_TOKEN is not set/.test(r.out), r.out.trim().split('\n')[0]);
+    }
+
     console.log('\n-- the desktop app\'s first-run install (electron/main.js installAppData)');
     {
       const locations = require(path.join(ROOT, 'src', 'locations'));

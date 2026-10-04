@@ -26,6 +26,12 @@ const locations = require('./locations');
 let LOC, staging, promptStore;
 try {
   locations.checkEnvFile(ENV_FILE);   // 0600 and ours, before any value in it is used
+  // No token means no auth: every route, on every interface HOST allows. That
+  // used to be a silent next(); it is a refusal to start.
+  locations.requireValue(process.env, 'SERVICE_TOKEN',
+    'Without it every route would be open to anyone who can reach the port. Generate one with ' +
+    '`node -e "console.log(require(\'crypto\').randomBytes(16).toString(\'hex\'))"`, put SERVICE_TOKEN=<it> in .env, ' +
+    'and enter the same value in the browser extension\'s options.');
   LOC = locations.resolve(process.env);
   locations.check(LOC);
   staging = new StagingStore(LOC.stagingFile);   // refuses a missing or corrupt queue
@@ -58,9 +64,8 @@ app.use((req, res, next) => {
   next();
 });
 
-const SERVICE_TOKEN = process.env.SERVICE_TOKEN;
+const SERVICE_TOKEN = process.env.SERVICE_TOKEN;   // required: the preflight refused a missing one
 app.use((req, res, next) => {
-  if (!SERVICE_TOKEN) return next();
 
   // Capability-URL exemption: possessing the draftId (an unguessable UUID
   // only ever returned by an authenticated POST /draft) is itself the

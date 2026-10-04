@@ -54,6 +54,14 @@ function resolve(env = process.env) {
   };
 }
 
+// The same holds for a value (law item 4): read from its one assigned place or
+// refused. Used for SERVICE_TOKEN, whose absence used to switch auth OFF.
+function requireValue(env, name, fix) {
+  const v = env[name];
+  if (v === undefined || String(v).trim() === '') throw new LocationError(`${name} is not set. ${fix}`);
+  return v;
+}
+
 function seedFor(locs) {
   const core = require('../public/promptbuilder-core.js');
   return [
@@ -165,4 +173,4 @@ function install(locs, { createDownloadDir = true, envFile = null } = {}) {
   return did;
 }
 
-module.exports = { resolve, check, checkEnvFile, install, LocationError, INSTALL_STEP, SEED_LIBRARY };
+module.exports = { resolve, check, checkEnvFile, requireValue, install, LocationError, INSTALL_STEP, SEED_LIBRARY };

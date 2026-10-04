@@ -10,6 +10,8 @@
   "main": "electron/main.js",
   "scripts": {
     "start": "node src/server.js",
+    "gate": "node scripts/gate.js",
+    "test": "node scripts/gate.js",
     "electron": "electron .",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",

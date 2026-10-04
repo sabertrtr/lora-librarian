@@ -1,5 +1,5 @@
 const fs = require('fs');
-const path = require('path');
+const { categoryKeyProblem, realDownloadRoot, downloadTarget } = require('./safePath');
 
 const API_BASE = 'https://civitai.com/api/v1';
 
@@ -158,9 +158,15 @@ async function fetchHeaderPrefix(versionData, token, maxBytes = 4 * 1024 * 1024)
   return Buffer.from(await res.arrayBuffer());
 }
 
-// Downloads the primary file for a resolved model-version object into destDir.
-// stem = filename with extension stripped, i.e. what goes inside <lora:stem:weight>.
-async function downloadPrimaryFile(versionData, token, destDir) {
+// Downloads the primary file for a resolved model-version object into
+// <downloadRoot>/<category>/. stem = filename with extension stripped, i.e. what
+// goes inside <lora:stem:weight>. The category and the remote filename are both
+// untrusted: safePath.downloadTarget refuses either one escaping downloadRoot,
+// and the category and the root are checked BEFORE any bytes are fetched.
+async function downloadPrimaryFile(versionData, token, downloadRoot, category) {
+  const cp = categoryKeyProblem(category);
+  if (cp) throw new Error(`refused: ${cp}. Nothing was downloaded.`);
+  realDownloadRoot(downloadRoot);
   const file = primaryFile(versionData);
 
   const url = new URL(file.downloadUrl);
@@ -173,8 +179,7 @@ async function downloadPrimaryFile(versionData, token, destDir) {
   const match = cd.match(/filename="?([^"]+)"?/);
   const filename = match ? match[1] : file.name;
 
-  fs.mkdirSync(destDir, { recursive: true });
-  const filepath = path.join(destDir, filename);
+  const { file: filepath } = downloadTarget(downloadRoot, category, filename);
   fs.writeFileSync(filepath, Buffer.from(await res.arrayBuffer()));
 
   const stem = filename.replace(/\.[^.]+$/, '');

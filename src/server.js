@@ -7,6 +7,7 @@ const { resolveVersion, searchModels, fetchModelVersions, downloadPrimaryFile, f
 const { screenModel } = require('./safety');
 const { listCategoryKeys, createCategory, renameHeadings, appendLine, findFlaggedLines, replaceFlaggedLine, replaceExactLine, removeExactLine, moveEntry, removeEntry, editEntry, listCommentedEntries, deleteLines, parseComposedLine, mergeEntries, splitMerged, setMemberActive, MAX_MERGE_MEMBERS } = require('./yamlEdit');
 const { markReplaced } = require('./loraFiles');
+const { categoryKeyProblem } = require('./safePath');
 const crypto = require('crypto');
 const { extractTagFrequency, extractTagFrequencyFromBuffer } = require('./safetensors');
 const { ensureEscaped, ensureEscapedLine } = require('./promptEscape');
@@ -194,6 +195,9 @@ app.post('/draft', async (req, res) => {
     return res.status(400).json({ error: 'civitaiUrl required' });
   }
   categoryPath = categoryPath || 'uncategorized';
+  // categoryPath names the download subfolder: refuse a traversal before any fetch.
+  const catProblem = categoryKeyProblem(categoryPath);
+  if (catProblem) return res.status(400).json({ error: `${catProblem}. Nothing was downloaded.` });
 
   try {
     const versionData = await resolveVersion(civitaiUrl, CIVITAI_TOKEN);
@@ -203,8 +207,7 @@ app.post('/draft', async (req, res) => {
     // at all), so everything gets finalized as free-text on /review instead.
     name = name || versionData.model?.name || '';
     source = source || '';
-    const destDir = path.join(DOWNLOAD_DIR, categoryPath);
-    const { stem, filepath, truncated } = await downloadPrimaryFile(versionData, CIVITAI_TOKEN, destDir);
+    const { stem, filepath, truncated } = await downloadPrimaryFile(versionData, CIVITAI_TOKEN, DOWNLOAD_DIR, categoryPath);
 
     const civitaiTriggers = cleanTriggers(versionData.trainedWords)
       .filter(t => t.toLowerCase() !== name.toLowerCase());
@@ -415,6 +418,10 @@ app.post('/staging/:id/accept', async (req, res) => {
   const lineText = ensureEscapedLine((req.body.lineText ?? rec.lineText ?? '').trim());
 
   if (!category) return res.status(400).json({ error: 'pick a category (character/concept/environment/style) before accepting' });
+  // The category names the download subfolder and the yaml heading: refuse a
+  // traversal ("../..", an absolute path) before anything is fetched or written.
+  const catProblem = categoryKeyProblem(category);
+  if (catProblem) return res.status(400).json({ error: `${catProblem}. Nothing was downloaded or written.` });
   if (!lineText) return res.status(400).json({ error: 'lineText is empty -- nothing to write' });
 
   let replacedFile = null;   // set only on the replace-a-flagged-entry path
@@ -422,8 +429,7 @@ app.post('/staging/:id/accept', async (req, res) => {
     if (!rec.downloaded) {
       // Re-resolve for a fresh download URL/token (Civitai URLs are scoped).
       const v = await resolveVersion(rec.civitaiUrl, CIVITAI_TOKEN);
-      const destDir = path.join(DOWNLOAD_DIR, category);
-      await downloadPrimaryFile(v, CIVITAI_TOKEN, destDir);
+      await downloadPrimaryFile(v, CIVITAI_TOKEN, DOWNLOAD_DIR, category);
       if (rec.isReplace) {
         // Replace the flagged entry in place (comment-out-old + insert-new),
         // never a blind append. Re-find the current index by matching the
@@ -587,6 +593,10 @@ app.post('/categories/create', (req, res) => {
   if (!rawName) return res.status(400).json({ error: 'category name required' });
   if (!/^[A-Za-z0-9_./-]+$/.test(rawName)) return res.status(400).json({ error: 'name may only contain letters, numbers, _ . / -' });
   const key = parent ? `${parent}/${rawName}` : rawName;
+  // A heading becomes a download subfolder at accept, so it must be a safe key
+  // ("..", "." and empty segments refused) -- the same rule accept enforces.
+  const keyProblem = categoryKeyProblem(key);
+  if (keyProblem) return res.status(400).json({ error: `${keyProblem}. No category was created.` });
   try {
     const created = createCategory(WILDCARDS_FILE, key);
     res.json({ ok: true, key, created, categories: listCategoryKeys(WILDCARDS_FILE) });

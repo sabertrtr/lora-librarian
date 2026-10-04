@@ -87,6 +87,7 @@ node scripts/test-merge.js          # wildcard-file editing primitives
 node scripts/test-promptbuilder.js  # prompt-builder core logic
 node scripts/test-download-path.js  # no download can escape the download folder
 node scripts/test-locations.js      # installed locations: init makes, the server checks
+node scripts/test-cache.js          # a corrupt hash-match cache is refused, never replaced
 ```
 The merge suite exercises the wildcard-file editing primitives (merge/split/park,
 move, remove, the replaced-file marker) against a throwaway copy in a temp dir, and

@@ -744,8 +744,19 @@ app.get('/collection', (req, res) => {
 // by lora stem) when the reverse hash-match has been run. Token-required.
 const CIVITAI_CACHE_FILE = LOC.cacheFile;
 
+// The hash-match cache is the scan's OUTPUT: absent until the first scan, so a
+// missing file is an empty cache. Anything else (unreadable, corrupt) is an
+// error naming the file -- it used to read as empty, and the next scan write
+// then replaced every cached match with the one new entry.
 function readCivitaiCache() {
-  try { return JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { return {}; }
+  let text;
+  try { text = fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8'); } catch (e) {
+    if (e.code === 'ENOENT') return {};
+    throw new Error(`cannot read the Civitai cache ${CIVITAI_CACHE_FILE}: ${e.message}. Fix its permissions (owner-only, 0600); it was not overwritten.`);
+  }
+  try { return JSON.parse(text); } catch (e) {
+    throw new Error(`the Civitai cache ${CIVITAI_CACHE_FILE} is not valid JSON (${e.message}). It was left untouched: repair it, or move it aside and re-run the folder scan to rebuild it.`);
+  }
 }
 
 // Attach the hash-match cache's Civitai data (image / model id / base model) to a
@@ -786,8 +797,7 @@ app.get('/lines', (req, res) => {
 app.get('/collection-data', (req, res) => {
   try {
     const { parseLibrary } = require('./yamlEdit');
-    let cache = {};
-    try { cache = JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { /* no cache yet */ }
+    const cache = readCivitaiCache();
 
     // Map each catalogued stem -> its category, so cards can show a badge and
     // hide the "add" action for ones already in the file. A MERGED entry holds
@@ -1035,16 +1045,19 @@ app.post('/cleanup/delete', (req, res) => {
 // /scan/match writes (if the client parallelizes) can't clobber each other.
 let _cacheWriteQ = Promise.resolve();
 function updateCache(mutator) {
-  _cacheWriteQ = _cacheWriteQ.then(async () => {
-    let cache = {};
-    try { cache = JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { /* none yet */ }
+  // Each write runs after the previous one SETTLES: a refused write must not
+  // poison the queue for every later one. readCivitaiCache() throws on a corrupt
+  // file, so a write never replaces a cache it could not read. No mkdir: the
+  // data directory is installed and checked at boot.
+  const op = _cacheWriteQ.catch(() => {}).then(async () => {
+    const cache = readCivitaiCache();
     mutator(cache);
-    fs.mkdirSync(path.dirname(CIVITAI_CACHE_FILE), { recursive: true });
     const tmp = `${CIVITAI_CACHE_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(cache, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(cache, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, CIVITAI_CACHE_FILE);
   });
-  return _cacheWriteQ;
+  _cacheWriteQ = op;
+  return op;
 }
 
 // Build a cache entry from a resolved Civitai version (shared by hash-match and
@@ -1067,8 +1080,7 @@ function scanEntry(stem, v, tags, extra) {
 // files it has already matched.
 app.get('/scan/known', (req, res) => {
   try {
-    let cache = {};
-    try { cache = JSON.parse(fs.readFileSync(CIVITAI_CACHE_FILE, 'utf8')); } catch (_) { /* none */ }
+    const cache = readCivitaiCache();
     res.json({ stems: Object.keys(cache) });
   } catch (e) {
     res.status(500).json({ error: e.message });

@@ -501,12 +501,16 @@ function startDrag(node, el, e){
     el.classList.remove('dragging','snapping');
     if(moved){
       const cand = findSnap(node);
-      // re-derive this node's single incoming edge purely from geometry
-      graph.edges = graph.edges.filter(e2=> e2.to!==node.id);
+      // Moving a node never breaks its input link (operator 2026-11-16; it used
+      // to be re-derived from geometry, so every move away from the provider cut
+      // it). Only a snap changes it: dropping the input on an output port aligns
+      // the node there and makes that port its single input. Clicking the link
+      // is how a link is cut.
       if(cand){
         node.x += Math.round(cand.port.x - ports(node).in.x);
         node.y += Math.round(cand.port.y - ports(node).in.y);
         el.style.left=node.x+'px'; el.style.top=node.y+'px';
+        graph.edges = graph.edges.filter(e2=> e2.to!==node.id);
         graph.edges.push({ from:cand.from, to:node.id, fromEdge:cand.port.edge });
       }
       render(); autosave();

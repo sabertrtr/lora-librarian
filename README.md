@@ -32,7 +32,8 @@ character, pose, style, …) holding a text box and any number of LoRAs, each wi
 per-LoRA **% proc chance** (edit one and the rest rebalance to sum 100). Nodes emit
 from their top/right/bottom edges and only receive on the left, so dragging a
 node's right edge onto another's left **snaps** them into a chain — and the chain
-order is the order of the generated prompt. "Generate" produces either one concrete
+order is the order of the generated prompt. Moving a node keeps its links; snapping
+its input onto a different output re-links it, and clicking a link cuts it. "Generate" produces either one concrete
 roll or a single Dynamic Prompts `{60::a|40::b}` weighted string. The layout
 persists and can be exported/imported (imports are reconciled field-by-field —
 missing fields are defaulted, unknown fields are set aside for review, nothing

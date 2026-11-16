@@ -12,7 +12,10 @@
   'use strict';
 
   const CURRENT_VERSION = 1;
-  const NODE_W = 210;   // logical node width; default-graph layout spaces by this
+  // Node width in px: the page sizes every node from this, and the default
+  // layout spaces nodes by it plus a 40px gap. It was 210 while the CSS drew
+  // nodes 248 wide, so the default chain rendered 2px apart.
+  const NODE_W = 248;
 
   // The categories the prompt structure starts with (Joseph's list). Order here is
   // the default left-to-right chain order.

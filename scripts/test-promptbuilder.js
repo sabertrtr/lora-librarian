@@ -207,6 +207,15 @@ console.log('\n-- default graph');
   eq('character(s) defaults to exclusive (pick one)', g.nodes.find(n => n.label === 'character(s)').mode, 'exclusive');
   eq('chained head-to-tail', g.edges.length, 14);
   eq('default order matches the label list', C.deriveOrder(g.nodes, g.edges).map(id => g.nodes.find(n => n.id === id).label), C.DEFAULT_LABELS);
+  // Nodes are drawn NODE_W wide, so the layout must leave a real gap at that
+  // width (it once spaced for 210 while the page drew 248: 2px gaps).
+  const gaps = g.nodes.slice(1).map((n, i) => n.x - (g.nodes[i].x + C.NODE_W));
+  ok('default layout leaves a 40px gap between NODE_W-wide nodes', gaps.every(d => d === 40), gaps.join(','));
+  // ...and the page takes its node width from NODE_W, not a second CSS number.
+  const html = require('fs').readFileSync(require('path').join(__dirname, '../public/promptbuilder.html'), 'utf8');
+  const rule = (html.match(/\.pbnode\s*\{[^}]*\}/) || [''])[0];
+  ok('.pbnode CSS sets no width of its own', !/(^|[\s;{])width\s*:/.test(rule.replace(/\/\*[\s\S]*?\*\//g, '')), rule);
+  ok('the page sizes nodes from Core.NODE_W', /el\.style\.width\s*=\s*Core\.NODE_W/.test(html));
 }
 
 console.log('\n-- import reconciliation');

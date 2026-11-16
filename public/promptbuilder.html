@@ -28,7 +28,7 @@
   #links path.hit { fill:none; stroke:transparent; stroke-width:16; pointer-events:stroke; cursor:pointer; }
   #links path.hit:hover + path.link, #links path.hit:hover { stroke:#ff8080; }
 
-  .pbnode { position:absolute; width:248px; background:var(--card); border:1px solid var(--line);
+  .pbnode { position:absolute; /* width: set from PromptCore.NODE_W in nodeEl() */ background:var(--card); border:1px solid var(--line);
     border-radius:10px; box-shadow:0 6px 18px rgba(0,0,0,.4); z-index:2; }
   .pbnode.snapping { border-color:#2dd47a; box-shadow:0 0 0 2px rgba(45,212,122,.5); }
   .pbnode.dragging { z-index:5; box-shadow:0 14px 40px rgba(0,0,0,.6); }
@@ -204,8 +204,13 @@ function autosave(){
     try {
       const r = await fetch('/prompt-graph', { method:'PUT', headers:jsonHeaders, body: JSON.stringify({ graph }) });
       if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error || r.status);
-      const d = await r.json();
-      graph = d.graph;                          // adopt the server-reconciled copy
+      // Do NOT adopt the server's reconciled copy here. Every node element's
+      // handlers (drag, label, prompt text, mode, loras) hold the node OBJECT they
+      // were rendered from; swapping `graph` without a re-render left them all
+      // writing to orphans, so after the first save no drag stuck and typed
+      // text was lost. The page's graph stays the source of truth; the server
+      // still reconciles what it writes, and the next load reads that back.
+      await r.json();
       $('saveStat').textContent = 'saved ✓';
     } catch(e){ $('saveStat').textContent = 'save failed: '+e.message; }
   }, 550);
@@ -230,7 +235,7 @@ const nodeById = id => graph.nodes.find(n=>n.id===id);
 const elById = id => canvas.querySelector(`.pbnode[data-id="${id}"]`);
 function ports(node){
   const el = elById(node.id);
-  const w = el ? el.offsetWidth : 248, h = el ? el.offsetHeight : 120;
+  const w = el ? el.offsetWidth : Core.NODE_W, h = el ? el.offsetHeight : 120;
   return {
     in:     { x:node.x,       y:node.y + 22 + 6, edge:'left' },
     right:  { x:node.x + w,   y:node.y + 22 + 6, edge:'right' },
@@ -291,11 +296,12 @@ function edgePath(p,q){
 function nodeEl(node, order){
   const el = document.createElement('div');
   el.className='pbnode'; el.dataset.id=node.id; el.style.left=node.x+'px'; el.style.top=node.y+'px';
+  el.style.width=Core.NODE_W+'px';
   const warn = lorasWarn(node);
   el.innerHTML = `
     <div class="pbhead">
       <span class="pborder">${order||'·'}</span>
-      <span class="pblabel" contenteditable="true" spellcheck="false">${esc(node.label)}</span>
+      <span class="pblabel" spellcheck="false" title="double-click to rename">${esc(node.label)}</span>
       <button class="pbdel" title="hold 3s to delete"><span>–</span><span class="fill"></span></button>
     </div>
     <div class="pbbody">
@@ -318,10 +324,23 @@ function nodeEl(node, order){
     <div class="port out bottom" title="output"></div>`;
   renderLoras(el, node);
 
-  // label edit
+  // label edit: double-click to rename, so a single press anywhere on the
+  // header drags (the always-editable label used to swallow ~70% of it)
   const lab = el.querySelector('.pblabel');
-  lab.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); lab.blur(); } });
-  lab.addEventListener('blur', ()=>{ const v=lab.textContent.trim()||'node'; if(v!==node.label){ node.label=v; autosave(); } });
+  lab.addEventListener('dblclick', e=>{
+    e.stopPropagation();
+    lab.contentEditable='true'; lab.focus();
+    const sel=getSelection(), rng=document.createRange(); rng.selectNodeContents(lab); sel.removeAllRanges(); sel.addRange(rng);
+  });
+  lab.addEventListener('keydown', e=>{
+    if(e.key==='Enter'){ e.preventDefault(); lab.blur(); }
+    else if(e.key==='Escape'){ e.preventDefault(); lab.textContent=node.label; lab.blur(); }
+  });
+  lab.addEventListener('blur', ()=>{
+    lab.contentEditable='false';
+    const v=lab.textContent.trim()||'node'; lab.textContent=v;
+    if(v!==node.label){ node.label=v; autosave(); }
+  });
   // prompt text
   const ta = el.querySelector('.pbtext');
   ta.addEventListener('input', ()=>{ node.promptText=ta.value; autosave(); scheduleGen(); });
@@ -346,7 +365,7 @@ function nodeEl(node, order){
   wireHoldDelete(el.querySelector('.pbdel'), node.id);
   // drag from header (ignore interactive children)
   el.querySelector('.pbhead').addEventListener('mousedown', e=>{
-    if(e.target.closest('button,.pblabel')) return;
+    if(e.target.closest('button,.pblabel[contenteditable="true"]')) return;
     startDrag(node, el, e);
   });
   return el;
